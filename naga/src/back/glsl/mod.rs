@@ -440,6 +440,11 @@ pub enum Error {
     ImageMultipleSamplers,
     #[error("{0}")]
     Custom(String),
+    /// Same as [`Error::Custom`], but carrying the source span of the construct
+    /// that could not be lowered so callers can point at it. Codegen failures
+    /// otherwise lose all position information the frontend recorded.
+    #[error("{0}")]
+    CustomWithSpan(String, crate::Span),
     #[error("overrides should not be present at this stage")]
     Override,
     /// [`crate::Sampling::First`] is unsupported.
@@ -447,6 +452,17 @@ pub enum Error {
     FirstSamplingNotSupported,
     #[error(transparent)]
     ResolveArraySizeError(#[from] proc::ResolveArraySizeError),
+}
+
+impl Error {
+    /// The source span of the construct that could not be lowered, for the
+    /// failures that are attributable to one.
+    pub fn span(&self) -> Option<crate::Span> {
+        match *self {
+            Error::CustomWithSpan(_, span) => Some(span),
+            _ => None,
+        }
+    }
 }
 
 /// Binary operation with a different logic on the GLSL side.

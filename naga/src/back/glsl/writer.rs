@@ -4107,8 +4107,9 @@ impl<'a, W: Write> Writer<'a, W> {
             }
             // TODO: Is there even a function for this?
             crate::ImageClass::Depth { multi: _ } => {
-                return Err(Error::Custom(
+                return Err(Error::CustomWithSpan(
                     "WGSL `textureLoad` from depth textures is not supported in GLSL".to_string(),
+                    ctx.expressions.get_span(handle),
                 ))
             }
             crate::ImageClass::External => unimplemented!(),
