@@ -546,12 +546,15 @@ impl<W> Writer<'_, W> {
                         }
                     }
                 }
-                Expression::ImageSample { image, level, offset, .. } => {
-                    if let TypeInner::Image {
+                Expression::ImageSample { image, level, offset, depth_ref, .. } => {
+                    // Without a compare the image samples as a plain float texture,
+                    // which never needs the shadow lod extension.
+                    if let (TypeInner::Image {
                         dim,
                         arrayed,
                         class: ImageClass::Depth { .. },
-                    } = *info[image].ty.inner_with(&module.types) {
+                    }, Some(_)) = (info[image].ty.inner_with(&module.types), depth_ref) {
+                        let (dim, arrayed) = (*dim, *arrayed);
                         let lod = matches!(level, SampleLevel::Zero | SampleLevel::Exact(_));
                         let bias = matches!(level, SampleLevel::Bias(_));
                         let auto = matches!(level, SampleLevel::Auto);

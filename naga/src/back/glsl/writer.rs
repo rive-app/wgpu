@@ -24,6 +24,10 @@ pub struct Writer<'a, W> {
     names: crate::FastHashMap<NameKey, String>,
     /// A map with the names of global variables needed for reflections.
     reflection_names_globals: crate::FastHashMap<Handle<crate::GlobalVariable>, String>,
+    /// Depth images this entry point never samples through a comparison
+    /// sampler. GLSL can only read a shadow sampler through a compare, so
+    /// these declare and sample as plain float textures instead.
+    plain_depth_images: crate::FastHashSet<Handle<crate::GlobalVariable>>,
     /// The selected entry point.
     pub(in crate::back::glsl) entry_point: &'a crate::EntryPoint,
     /// The index of the selected entry point.
@@ -93,6 +97,8 @@ impl<'a, W: Write> Writer<'a, W> {
             &mut names,
         );
 
+        let plain_depth_images = plain_depth_images(module, info.get_entry_point(ep_idx))?;
+
         // Build the instance
         let mut this = Self {
             module,
@@ -105,6 +111,7 @@ impl<'a, W: Write> Writer<'a, W> {
             features: FeaturesManager::new(),
             names,
             reflection_names_globals: crate::FastHashMap::default(),
+            plain_depth_images,
             entry_point: &module.entry_points[ep_idx],
             entry_point_idx: ep_idx as u16,
             multiview: pipeline_options.multiview,
@@ -379,6 +386,12 @@ impl<'a, W: Write> Writer<'a, W> {
                     // All images in glsl are `uniform`
                     // The trailing space is important
                     write!(self.out, "uniform ")?;
+
+                    let class = if self.plain_depth_images.contains(&handle) {
+                        float_sampled(class)
+                    } else {
+                        class
+                    };
 
                     // write the type
                     //
@@ -2555,6 +2568,13 @@ impl<'a, W: Write> Writer<'a, W> {
                     } => (dim, class, arrayed),
                     _ => unreachable!(),
                 };
+                let plain_depth = matches!(class, crate::ImageClass::Depth { .. })
+                    && self.is_plain_depth_image(ctx, image);
+                let class = if plain_depth {
+                    float_sampled(class)
+                } else {
+                    class
+                };
                 let mut err = None;
                 if dim == crate::ImageDimension::Cube {
                     if offset.is_some() {
@@ -2667,7 +2687,21 @@ impl<'a, W: Write> Writer<'a, W> {
                     // Exact and bias require another argument
                     crate::SampleLevel::Exact(expr) => {
                         write!(self.out, ", ")?;
+                        // Depth textures take an integer level in WGSL; textureLod wants a float.
+                        let int_level = matches!(
+                            *ctx.resolve_type(expr, &self.module.types),
+                            TypeInner::Scalar(crate::Scalar {
+                                kind: crate::ScalarKind::Sint | crate::ScalarKind::Uint,
+                                ..
+                            })
+                        );
+                        if int_level {
+                            write!(self.out, "float(")?;
+                        }
                         self.write_expr(expr, ctx)?;
+                        if int_level {
+                            write!(self.out, ")")?;
+                        }
                     }
                     crate::SampleLevel::Bias(_) => {
                         // This needs to be done after the offset writing
@@ -2713,7 +2747,12 @@ impl<'a, W: Write> Writer<'a, W> {
                 }
 
                 // End the function
-                write!(self.out, ")")?
+                write!(self.out, ")")?;
+
+                // A plain float texture returns a vec4 where WGSL's depth sample is a scalar.
+                if plain_depth && gather.is_none() {
+                    write!(self.out, ".x")?;
+                }
             }
             Expression::ImageLoad {
                 image,
@@ -4083,6 +4122,13 @@ impl<'a, W: Write> Writer<'a, W> {
             } => (dim, class),
             _ => unreachable!(),
         };
+        let plain_depth = matches!(class, crate::ImageClass::Depth { .. })
+            && self.is_plain_depth_image(ctx, image);
+        let class = if plain_depth {
+            float_sampled(class)
+        } else {
+            class
+        };
 
         // Get the name of the function to be used for the load operation
         // and the policy to be used with it.
@@ -4325,7 +4371,31 @@ impl<'a, W: Write> Writer<'a, W> {
             write!(self.out, ")")?;
         }
 
+        // A plain float texture returns a vec4 where WGSL's depth load is a scalar.
+        if plain_depth {
+            write!(self.out, ".x")?;
+        }
+
         Ok(())
+    }
+
+    /// Whether `image` reads a depth global this entry point never compares against.
+    fn is_plain_depth_image(
+        &self,
+        ctx: &back::FunctionCtx,
+        image: Handle<crate::Expression>,
+    ) -> bool {
+        let mut expr = image;
+        loop {
+            match ctx.expressions[expr] {
+                crate::Expression::GlobalVariable(handle) => {
+                    return self.plain_depth_images.contains(&handle)
+                }
+                crate::Expression::Access { base, .. }
+                | crate::Expression::AccessIndex { base, .. } => expr = base,
+                _ => return false,
+            }
+        }
     }
 
     fn write_named_expr(
@@ -4632,4 +4702,66 @@ impl<'a, W: Write> Writer<'a, W> {
             _ => unreachable!(),
         }
     }
+}
+
+/// The float texture class a plain depth image declares and samples as.
+fn float_sampled(class: crate::ImageClass) -> crate::ImageClass {
+    match class {
+        crate::ImageClass::Depth { multi } => crate::ImageClass::Sampled {
+            kind: crate::ScalarKind::Float,
+            multi,
+        },
+        class => class,
+    }
+}
+
+/// Depth image globals `ep_info` never samples through a comparison sampler.
+///
+/// One GLSL binding cannot be both a shadow sampler and a float texture, so an
+/// image compared against anywhere in the entry point stays a shadow sampler
+/// and a plain sample of it is an error.
+fn plain_depth_images(
+    module: &crate::Module,
+    ep_info: &valid::FunctionInfo,
+) -> Result<crate::FastHashSet<Handle<crate::GlobalVariable>>, Error> {
+    let is_depth = |var: &crate::GlobalVariable| {
+        matches!(
+            module.types[var.ty].inner,
+            TypeInner::Image {
+                class: crate::ImageClass::Depth { .. },
+                ..
+            }
+        )
+    };
+    let mut compared = crate::FastHashSet::default();
+    let mut plain = crate::FastHashSet::default();
+    for key in ep_info.sampling_set.iter() {
+        if !is_depth(&module.global_variables[key.image]) {
+            continue;
+        }
+        let comparison = matches!(
+            module.types[module.global_variables[key.sampler].ty].inner,
+            TypeInner::Sampler { comparison: true }
+        );
+        if comparison {
+            compared.insert(key.image);
+        } else {
+            plain.insert(key.image);
+        }
+    }
+    if let Some(image) = plain.iter().find(|image| compared.contains(*image)) {
+        let name = module.global_variables[*image]
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("{image:?}"));
+        return Err(Error::Custom(format!(
+            "depth texture `{name}` is sampled both with and without a comparison sampler, which GLSL cannot express through one binding"
+        )));
+    }
+    Ok(module
+        .global_variables
+        .iter()
+        .filter(|(handle, var)| is_depth(var) && !compared.contains(handle))
+        .map(|(handle, _)| handle)
+        .collect())
 }
