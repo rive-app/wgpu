@@ -1,4 +1,3 @@
-glsl_exclude_list = ["depth_load", "depth_no_comparison"]
 targets = "SPIRV | METAL | HLSL | WGSL | GLSL"
 
 [glsl]
