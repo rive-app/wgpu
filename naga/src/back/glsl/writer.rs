@@ -4385,17 +4385,8 @@ impl<'a, W: Write> Writer<'a, W> {
         ctx: &back::FunctionCtx,
         image: Handle<crate::Expression>,
     ) -> bool {
-        let mut expr = image;
-        loop {
-            match ctx.expressions[expr] {
-                crate::Expression::GlobalVariable(handle) => {
-                    return self.plain_depth_images.contains(&handle)
-                }
-                crate::Expression::Access { base, .. }
-                | crate::Expression::AccessIndex { base, .. } => expr = base,
-                _ => return false,
-            }
-        }
+        image_global(ctx.expressions, image)
+            .is_some_and(|handle| self.plain_depth_images.contains(&handle))
     }
 
     fn write_named_expr(
@@ -4715,6 +4706,47 @@ fn float_sampled(class: crate::ImageClass) -> crate::ImageClass {
     }
 }
 
+/// The global an image expression reads, through binding array accesses.
+fn image_global(
+    expressions: &crate::Arena<crate::Expression>,
+    image: Handle<crate::Expression>,
+) -> Option<Handle<crate::GlobalVariable>> {
+    let mut expr = image;
+    loop {
+        match expressions[expr] {
+            crate::Expression::GlobalVariable(handle) => return Some(handle),
+            crate::Expression::Access { base, .. }
+            | crate::Expression::AccessIndex { base, .. } => expr = base,
+            _ => return None,
+        }
+    }
+}
+
+/// Where `module` first samples `image` without a comparison, for the error
+/// that names it.
+fn plain_sample_span(module: &crate::Module, image: Handle<crate::GlobalVariable>) -> crate::Span {
+    let functions = module
+        .functions
+        .iter()
+        .map(|(_, function)| function)
+        .chain(module.entry_points.iter().map(|ep| &ep.function));
+    for function in functions {
+        for (handle, expression) in function.expressions.iter() {
+            if let crate::Expression::ImageSample {
+                image: sampled,
+                depth_ref: None,
+                ..
+            } = *expression
+            {
+                if image_global(&function.expressions, sampled) == Some(image) {
+                    return function.expressions.get_span(handle);
+                }
+            }
+        }
+    }
+    crate::Span::default()
+}
+
 /// Depth image globals `ep_info` never samples through a comparison sampler.
 ///
 /// One GLSL binding cannot be both a shadow sampler and a float texture, so an
@@ -4754,9 +4786,12 @@ fn plain_depth_images(
             .name
             .clone()
             .unwrap_or_else(|| format!("{image:?}"));
-        return Err(Error::Custom(format!(
-            "depth texture `{name}` is sampled both with and without a comparison sampler, which GLSL cannot express through one binding"
-        )));
+        return Err(Error::CustomWithSpan(
+            format!(
+                "depth texture `{name}` is sampled both with and without a comparison sampler, which GLSL cannot express through one binding"
+            ),
+            plain_sample_span(module, *image),
+        ));
     }
     Ok(module
         .global_variables
