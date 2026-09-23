@@ -48,8 +48,8 @@ fn main() {
     // u3 = extractBits(u3, 5u, 10u);
     // u4 = extractBits(u4, 5u, 10u);
     // Implementation is broken on downlevel
-    // i = firstTrailingBit(i);
-    // u2 = firstTrailingBit(u2);
+    i = firstTrailingBit(i);
+    u2 = firstTrailingBit(u2);
     // Implementation is broken on downlevel
     // i3 = firstLeadingBit(i3);
     // u3 = firstLeadingBit(u3);
