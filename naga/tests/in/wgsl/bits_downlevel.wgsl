@@ -47,9 +47,9 @@ fn main() {
     // u2 = extractBits(u2, 5u, 10u);
     // u3 = extractBits(u3, 5u, 10u);
     // u4 = extractBits(u4, 5u, 10u);
+    i = firstTrailingBit(i);
+    u2 = firstTrailingBit(u2);
     // Implementation is broken on downlevel
-    // i = firstTrailingBit(i);
-    // u2 = firstTrailingBit(u2);
     // i3 = firstLeadingBit(i3);
     // u3 = firstLeadingBit(u3);
     // Implementation is broken on downlevel

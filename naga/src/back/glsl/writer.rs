@@ -796,6 +796,66 @@ impl<'a, W: Write> Writer<'a, W> {
         Ok(())
     }
 
+    /// Write `findLSB(arg)`, or its lowering where the version lacks integer
+    /// functions: `x & -x` keeps only the lowest set bit, a power of two whose
+    /// `log2` is its index, and zero comes out as `-1` like `findLSB`.
+    fn write_find_lsb(
+        &mut self,
+        arg: Handle<crate::Expression>,
+        ctx: &back::FunctionCtx,
+    ) -> BackendResult {
+        if self.options.version.supports_integer_functions() {
+            write!(self.out, "findLSB(")?;
+            self.write_expr(arg, ctx)?;
+            write!(self.out, ")")?;
+            return Ok(());
+        }
+        let (size, is_uint) = match *ctx.resolve_type(arg, &self.module.types) {
+            TypeInner::Vector { size, scalar } => {
+                (Some(size), scalar.kind == crate::ScalarKind::Uint)
+            }
+            TypeInner::Scalar(scalar) => (None, scalar.kind == crate::ScalarKind::Uint),
+            _ => unreachable!(),
+        };
+        let (float_ty, uint_ty, int_ty) = match size {
+            Some(size) => {
+                let s = common::vector_size_str(size);
+                (format!("vec{s}"), format!("uvec{s}"), format!("ivec{s}"))
+            }
+            None => ("float".to_string(), "uint".to_string(), "int".to_string()),
+        };
+        // the argument as unsigned; it is baked, so repeating it is cheap
+        let bits = |this: &mut Self| -> BackendResult {
+            if is_uint {
+                this.write_expr(arg, ctx)
+            } else {
+                write!(this.out, "{uint_ty}(")?;
+                this.write_expr(arg, ctx)?;
+                write!(this.out, ")")?;
+                Ok(())
+            }
+        };
+        // max keeps log2 finite for zero; the equality then subtracts the 1 that turns 0 into -1
+        write!(self.out, "({int_ty}(floor(log2({float_ty}(max(")?;
+        bits(self)?;
+        write!(self.out, " & ({uint_ty}(0u) - ")?;
+        bits(self)?;
+        write!(self.out, "), {uint_ty}(1u)))) + 0.5)) - {int_ty}(")?;
+        match size {
+            Some(_) => {
+                write!(self.out, "equal(")?;
+                bits(self)?;
+                write!(self.out, ", {uint_ty}(0u))")?;
+            }
+            None => {
+                bits(self)?;
+                write!(self.out, " == 0u")?;
+            }
+        }
+        write!(self.out, "))")?;
+        Ok(())
+    }
+
     /// Write an interface block for a single Naga global.
     ///
     /// Write `block_name { members }`. Since `block_name` must be unique
@@ -892,6 +952,12 @@ impl<'a, W: Write> Writer<'a, W> {
                     crate::MathFunction::Dot4U8Packed | crate::MathFunction::Dot4I8Packed => {
                         self.need_bake_expressions.insert(arg);
                         self.need_bake_expressions.insert(arg1.unwrap());
+                    }
+                    crate::MathFunction::FirstTrailingBit
+                    | crate::MathFunction::CountTrailingZeros
+                        if !self.options.version.supports_integer_functions() =>
+                    {
+                        self.need_bake_expressions.insert(arg);
                     }
                     crate::MathFunction::Pack4xI8
                     | crate::MathFunction::Pack4xU8
@@ -3334,24 +3400,24 @@ impl<'a, W: Write> Writer<'a, W> {
                             TypeInner::Vector { size, scalar, .. } => {
                                 let s = common::vector_size_str(size);
                                 if let crate::ScalarKind::Uint = scalar.kind {
-                                    write!(self.out, "min(uvec{s}(findLSB(")?;
-                                    self.write_expr(arg, ctx)?;
-                                    write!(self.out, ")), uvec{s}(32u))")?;
+                                    write!(self.out, "min(uvec{s}(")?;
+                                    self.write_find_lsb(arg, ctx)?;
+                                    write!(self.out, "), uvec{s}(32u))")?;
                                 } else {
-                                    write!(self.out, "ivec{s}(min(uvec{s}(findLSB(")?;
-                                    self.write_expr(arg, ctx)?;
-                                    write!(self.out, ")), uvec{s}(32u)))")?;
+                                    write!(self.out, "ivec{s}(min(uvec{s}(")?;
+                                    self.write_find_lsb(arg, ctx)?;
+                                    write!(self.out, "), uvec{s}(32u)))")?;
                                 }
                             }
                             TypeInner::Scalar(scalar) => {
                                 if let crate::ScalarKind::Uint = scalar.kind {
-                                    write!(self.out, "min(uint(findLSB(")?;
-                                    self.write_expr(arg, ctx)?;
-                                    write!(self.out, ")), 32u)")?;
+                                    write!(self.out, "min(uint(")?;
+                                    self.write_find_lsb(arg, ctx)?;
+                                    write!(self.out, "), 32u)")?;
                                 } else {
-                                    write!(self.out, "int(min(uint(findLSB(")?;
-                                    self.write_expr(arg, ctx)?;
-                                    write!(self.out, ")), 32u))")?;
+                                    write!(self.out, "int(min(uint(")?;
+                                    self.write_find_lsb(arg, ctx)?;
+                                    write!(self.out, "), 32u))")?;
                                 }
                             }
                             _ => unreachable!(),
@@ -3487,7 +3553,33 @@ impl<'a, W: Write> Writer<'a, W> {
 
                         return Ok(());
                     }
-                    Mf::FirstTrailingBit => "findLSB",
+                    Mf::FirstTrailingBit => {
+                        if !self.options.version.supports_integer_functions() {
+                            // the shared path below casts findLSB's int back to uint
+                            let uint_cast = match *ctx.resolve_type(arg, &self.module.types) {
+                                TypeInner::Vector { size, scalar }
+                                    if scalar.kind == crate::ScalarKind::Uint =>
+                                {
+                                    Some(format!("uvec{}", common::vector_size_str(size)))
+                                }
+                                TypeInner::Scalar(scalar)
+                                    if scalar.kind == crate::ScalarKind::Uint =>
+                                {
+                                    Some("uint".to_string())
+                                }
+                                _ => None,
+                            };
+                            if let Some(cast) = uint_cast.as_deref() {
+                                write!(self.out, "{cast}(")?;
+                            }
+                            self.write_find_lsb(arg, ctx)?;
+                            if uint_cast.is_some() {
+                                write!(self.out, ")")?;
+                            }
+                            return Ok(());
+                        }
+                        "findLSB"
+                    }
                     Mf::FirstLeadingBit => "findMSB",
                     // data packing
                     Mf::Pack4x8snorm => {
@@ -4696,7 +4788,7 @@ impl<'a, W: Write> Writer<'a, W> {
 }
 
 /// The float texture class a plain depth image declares and samples as.
-fn float_sampled(class: crate::ImageClass) -> crate::ImageClass {
+const fn float_sampled(class: crate::ImageClass) -> crate::ImageClass {
     match class {
         crate::ImageClass::Depth { multi } => crate::ImageClass::Sampled {
             kind: crate::ScalarKind::Float,
@@ -4796,7 +4888,7 @@ fn plain_depth_images(
     Ok(module
         .global_variables
         .iter()
-        .filter(|(handle, var)| is_depth(var) && !compared.contains(handle))
+        .filter(|&(handle, var)| is_depth(var) && !compared.contains(&handle))
         .map(|(handle, _)| handle)
         .collect())
 }
