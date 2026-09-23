@@ -457,7 +457,7 @@ pub enum Error {
 impl Error {
     /// The source span of the construct that could not be lowered, for the
     /// failures that are attributable to one.
-    pub fn span(&self) -> Option<crate::Span> {
+    pub const fn span(&self) -> Option<crate::Span> {
         match *self {
             Error::CustomWithSpan(_, span) => Some(span),
             _ => None,
