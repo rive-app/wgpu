@@ -1,0 +1,8 @@
+targets = "SPIRV"
+
+[bounds_check_policies]
+image_load = "Restrict"
+
+[spv]
+debug = true
+version = [1, 1]
