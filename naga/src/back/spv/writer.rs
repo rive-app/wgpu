@@ -2431,10 +2431,10 @@ impl Writer {
                             rows: crate::VectorSize::Bi,
                             ..
                         } => needs_std140_type = true,
-                        // If an array member needs a std140 type, because it is an array
-                        // (of an array, etc) of `matCx2`s, then the struct also needs
-                        // a std140 type which uses the std140 type for this member.
-                        crate::TypeInner::Array { .. }
+                        // If an array or struct member needs a std140 type, because it
+                        // holds a `matCx2` at any depth, then the struct also needs a
+                        // std140 type which uses the std140 type for this member.
+                        crate::TypeInner::Array { .. } | crate::TypeInner::Struct { .. }
                             if self
                                 .write_std140_compat_type_declaration(module, member.ty)?
                                 .is_some() =>
