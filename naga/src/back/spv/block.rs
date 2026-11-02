@@ -2869,22 +2869,13 @@ impl BlockContext<'_> {
             };
 
             match wrapped_load {
-                Some(ref wrapped_load) => {
-                    // If we loaded a std140 compat type then we must call the
-                    // function to convert the loaded value to the regular type.
-                    let result_id = self.gen_id();
-                    let function_id = self.writer.wrapped_functions
-                        [&WrappedFunction::ConvertFromStd140CompatType {
-                            r#type: wrapped_load.r#type,
-                        }];
-                    block.body.push(Instruction::function_call(
-                        result_type_id,
-                        result_id,
-                        function_id,
-                        &[load_id],
-                    ));
-                    Ok(result_id)
-                }
+                // A std140 compat load converts to the regular type.
+                Some(ref wrapped_load) => self.writer.write_std140_conversion(
+                    self.ir_module,
+                    wrapped_load.r#type,
+                    load_id,
+                    block,
+                ),
                 None => Ok(load_id),
             }
         }

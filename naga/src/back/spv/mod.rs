@@ -59,8 +59,8 @@ std140 compatible type declaration.
 
 Whenever a value of such a type is [`loaded`] we insert code to convert the
 loaded value from the std140 compatible type to the regular type. This occurs
-in `BlockContext::write_checked_load`, making use of the wrapper function
-defined by `Writer::write_wrapped_convert_from_std140_compat_type`. For matrices
+in `BlockContext::write_checked_load`, written inline by
+`Writer::write_std140_conversion`. For matrices
 that have been decomposed as separate columns in the containing struct, we load
 each column separately then composite the matrix type in
 `BlockContext::maybe_write_load_uniform_matcx2_struct_member`.
@@ -620,9 +620,6 @@ enum WrappedFunction {
         op: crate::BinaryOperator,
         left_type_id: Word,
         right_type_id: Word,
-    },
-    ConvertFromStd140CompatType {
-        r#type: Handle<crate::Type>,
     },
     MatCx2GetColumn {
         r#type: Handle<crate::Type>,

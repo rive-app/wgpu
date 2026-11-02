@@ -45,51 +45,31 @@ layout(set = 0, binding = 0, std140) uniform u
     std140_U _m0;
 } u_1;
 
-layout(location = 0) out vec4 _88;
-
-Inner Inner_from_std140(std140_Inner _47)
-{
-    return Inner(mat3x2(_47.m_col0, _47.m_col1, _47.m_col2), _47.s);
-}
-
-Mid Mid_from_std140(std140_Mid _41)
-{
-    return Mid(_41.pad, Inner_from_std140(_41.inner));
-}
-
-Mid[2] array_Mid_2_from_std140(std140_Mid _61[2])
-{
-    return Mid[](Mid_from_std140(_61[0]), Mid_from_std140(_61[1]));
-}
-
-U U_from_std140(std140_U _35)
-{
-    return U(_35.a, Mid_from_std140(_35.mid), array_Mid_2_from_std140(_35.mids));
-}
+layout(location = 0) out vec4 _51;
 
 float take(Mid m)
 {
     return m.inner.m[2].y + m.inner.s;
 }
 
-vec2 mat3x2_f32_get_column(mat3x2 _71, uint _72)
+vec2 mat3x2_f32_get_column(mat3x2 _34, uint _35)
 {
-    vec2 _83;
-    switch (_72)
+    vec2 _46;
+    switch (_35)
     {
         case 0u:
         {
-            _83 = _71[0];
+            _46 = _34[0];
             break;
         }
         case 1u:
         {
-            _83 = _71[1];
+            _46 = _34[1];
             break;
         }
         case 2u:
         {
-            _83 = _71[2];
+            _46 = _34[2];
             break;
         }
         default:
@@ -97,12 +77,12 @@ vec2 mat3x2_f32_get_column(mat3x2 _71, uint _72)
             break; // unreachable workaround
         }
     }
-    return _83;
+    return _46;
 }
 
 void main()
 {
-    uint _103 = uint(clamp(gl_FragCoord.x, 0.0, 4294967040.0)) & 1u;
-    _88 = vec4(take(Mid_from_std140(u_1._m0.mid)) + U_from_std140(u_1._m0).mids[1].inner.s, mat3x2_f32_get_column(mat3x2(u_1._m0.mids[_103].inner.m_col0, u_1._m0.mids[_103].inner.m_col1, u_1._m0.mids[_103].inner.m_col2), _103).x + Mid_from_std140(u_1._m0.mids[_103]).inner.s, u_1._m0.mid.inner.m_col1[_103], u_1._m0.mid.inner.m_col0.y + mat3x2(u_1._m0.mid.inner.m_col0, u_1._m0.mid.inner.m_col1, u_1._m0.mid.inner.m_col2)[2].x);
+    uint _66 = uint(clamp(gl_FragCoord.x, 0.0, 4294967040.0)) & 1u;
+    _51 = vec4(take(Mid(u_1._m0.mid.pad, Inner(mat3x2(u_1._m0.mid.inner.m_col0, u_1._m0.mid.inner.m_col1, u_1._m0.mid.inner.m_col2), u_1._m0.mid.inner.s))) + U(u_1._m0.a, Mid(u_1._m0.mid.pad, Inner(mat3x2(u_1._m0.mid.inner.m_col0, u_1._m0.mid.inner.m_col1, u_1._m0.mid.inner.m_col2), u_1._m0.mid.inner.s)), Mid[](Mid(u_1._m0.mids[0].pad, Inner(mat3x2(u_1._m0.mids[0].inner.m_col0, u_1._m0.mids[0].inner.m_col1, u_1._m0.mids[0].inner.m_col2), u_1._m0.mids[0].inner.s)), Mid(u_1._m0.mids[1].pad, Inner(mat3x2(u_1._m0.mids[1].inner.m_col0, u_1._m0.mids[1].inner.m_col1, u_1._m0.mids[1].inner.m_col2), u_1._m0.mids[1].inner.s)))).mids[1].inner.s, mat3x2_f32_get_column(mat3x2(u_1._m0.mids[_66].inner.m_col0, u_1._m0.mids[_66].inner.m_col1, u_1._m0.mids[_66].inner.m_col2), _66).x + Mid(u_1._m0.mids[_66].pad, Inner(mat3x2(u_1._m0.mids[_66].inner.m_col0, u_1._m0.mids[_66].inner.m_col1, u_1._m0.mids[_66].inner.m_col2), u_1._m0.mids[_66].inner.s)).inner.s, u_1._m0.mid.inner.m_col1[_66], u_1._m0.mid.inner.m_col0.y + mat3x2(u_1._m0.mid.inner.m_col0, u_1._m0.mid.inner.m_col1, u_1._m0.mid.inner.m_col2)[2].x);
 }
 
