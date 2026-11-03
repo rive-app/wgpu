@@ -1,13 +1,8 @@
-use alloc::{
-    format,
-    string::{String, ToString},
-    vec,
-    vec::Vec,
-};
+use alloc::{format, string::String, vec, vec::Vec};
 use core::fmt::Write;
 
 use crate::{
-    back::{hlsl::BackendResult, Baked, Level},
+    back::{hlsl::BackendResult, Level},
     Handle,
 };
 use crate::{RayQueryIntersection, TypeInner};
@@ -397,8 +392,11 @@ impl<W: Write> super::Writer<'_, W> {
     ) -> BackendResult {
         let base_level = level;
         write!(self.out, "{level}")?;
-        let name = Baked(result).to_string();
-        writeln!(self.out, "bool {name} = false;")?;
+        let name = self.result_name(result);
+        if self.hoisted_loop_expressions.remove(&result).is_none() {
+            write!(self.out, "bool ")?;
+        }
+        writeln!(self.out, "{name} = false;")?;
         // This prevents variables flowing down a level and causing compile errors.
         if self.options.ray_query_initialization_tracking {
             writeln!(self.out, "{level}{{")?;

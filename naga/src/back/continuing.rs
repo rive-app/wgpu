@@ -38,9 +38,10 @@ pub(super) fn continuing_dependencies(
     bakes: impl Fn(Handle<crate::Expression>) -> bool,
 ) -> Vec<Handle<crate::Expression>> {
     let mut candidates = HandleSet::for_arena(&function.expressions);
+    // A handle such as a texture cannot be declared ahead and assigned later,
+    // so `continuing` re-evaluates it, reading its operands' temporaries.
     for handle in definitions(&function.expressions, body).iter() {
-        if bakes(handle) {
-            assert!(fits_in_temporary(module, info, handle));
+        if bakes(handle) && fits_in_temporary(module, info, handle) {
             candidates.insert(handle);
         }
     }
@@ -119,13 +120,13 @@ fn definitions(
 /// and `extra_roots` will refer to, directly or indirectly.
 ///
 /// This is wider than what `block` needs the values of, because we do no dead
-/// code elimination: [`Writer::put_block`] writes out a definition for every
+/// code elimination: `Writer::put_block` writes out a definition for every
 /// expression it bakes, whether or not anything reads it, and that definition
 /// refers to the expression's operands. Hence
 /// [`trace_block_including_emits`] rather than [`trace_block`]. Miss those and
 /// a dead definition would leave its operands un-hoisted, and `continuing`
 /// would re-evaluate them in place - or, for a statement result, reach the
-/// `unreachable!` in [`Writer::put_expression`], which has no inline form to
+/// `unreachable!` in `Writer::put_expression`, which has no inline form to
 /// fall back on.
 ///
 /// The search does not continue past an expression in `stop_at`: such an
@@ -135,8 +136,6 @@ fn definitions(
 ///
 /// [`trace_block_including_emits`]: crate::compact::functions::FunctionTracer::trace_block_including_emits
 /// [`trace_block`]: crate::compact::functions::FunctionTracer::trace_block
-/// [`Writer::put_block`]: super::msl::Writer
-/// [`Writer::put_expression`]: super::msl::Writer
 fn expressions_used(
     module: &crate::Module,
     function: &crate::Function,

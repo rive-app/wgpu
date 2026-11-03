@@ -4846,7 +4846,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
     }
 
     /// The name of the temporary holding a statement's `result`.
-    fn result_name(&self, result: Handle<crate::Expression>) -> String {
+    pub(super) fn result_name(&self, result: Handle<crate::Expression>) -> String {
         self.hoisted_loop_expressions
             .get(&result)
             .cloned()

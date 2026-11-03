@@ -4026,6 +4026,18 @@ impl<W: Write> Writer<W> {
             return true;
         }
 
+        // Its arguments are recast into locals declared where it is written,
+        // which a later re-evaluation, as in `continuing`, could not name.
+        if let crate::Expression::Math {
+            fun: crate::MathFunction::Dot4I8Packed | crate::MathFunction::Dot4U8Packed,
+            ..
+        } = context.function.expressions[handle]
+        {
+            if context.lang_version >= (2, 1) {
+                return true;
+            }
+        }
+
         // Don't bake pointer expressions
         if context.resolve_type(handle).pointer_space().is_some() {
             return false;
