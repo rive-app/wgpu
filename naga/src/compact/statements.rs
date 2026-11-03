@@ -22,7 +22,7 @@ impl FunctionTracer<'_> {
     /// the expression's operands.
     ///
     /// [`Emit`]: crate::Statement::Emit
-    #[cfg(msl_out)]
+    #[cfg(any(glsl_out, hlsl_out, msl_out))]
     pub fn trace_block_including_emits(&mut self, block: &[crate::Statement]) {
         self.trace_block_impl(block, true)
     }

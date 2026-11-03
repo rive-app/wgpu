@@ -29,6 +29,8 @@ pub mod pipeline_constants;
 
 #[cfg(any(hlsl_out, glsl_out))]
 mod continue_forward;
+#[cfg(any(glsl_out, hlsl_out, msl_out))]
+mod continuing;
 
 pub use nt::TaskDispatchLimits;
 

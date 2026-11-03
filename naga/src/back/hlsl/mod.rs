@@ -755,6 +755,11 @@ pub struct Writer<'a, W> {
     entry_point_io: crate::FastHashMap<usize, writer::EntryPointInterface>,
     /// Set of expressions that have associated temporary variables
     named_expressions: crate::NamedExpressions,
+    /// Expressions whose temporaries are declared ahead of an enclosing loop,
+    /// because its `continuing` block, which we write above the body, reads
+    /// them. Each moves to [`Self::named_expressions`] once the body assigns
+    /// it.
+    hoisted_loop_expressions: crate::FastHashMap<Handle<crate::Expression>, String>,
     wrapped: Wrapped,
     written_committed_intersection: bool,
     written_candidate_intersection: bool,

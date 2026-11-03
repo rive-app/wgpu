@@ -36,6 +36,11 @@ pub struct Writer<'a, W> {
     block_id: IdGenerator,
     /// Set of expressions that have associated temporary variables.
     named_expressions: crate::NamedExpressions,
+    /// Expressions whose temporaries are declared ahead of an enclosing loop,
+    /// because its `continuing` block, which we write above the body, reads
+    /// them. Each moves to [`Self::named_expressions`] once the body assigns
+    /// it.
+    hoisted_loop_expressions: crate::FastHashMap<Handle<crate::Expression>, String>,
     /// Set of expressions that need to be baked to avoid unnecessary repetition in output
     need_bake_expressions: back::NeedBakeExpressions,
     /// Information about nesting of loops and switches.
@@ -117,6 +122,7 @@ impl<'a, W: Write> Writer<'a, W> {
             multiview: pipeline_options.multiview,
             block_id: IdGenerator::default(),
             named_expressions: Default::default(),
+            hoisted_loop_expressions: Default::default(),
             need_bake_expressions: Default::default(),
             continue_ctx: back::continue_forward::ContinueCtx::default(),
             varying: Default::default(),
@@ -1294,6 +1300,7 @@ impl<'a, W: Write> Writer<'a, W> {
         };
 
         self.named_expressions.clear();
+        self.hoisted_loop_expressions.clear();
         self.update_expressions_to_bake(func, info);
 
         // Write the function header
@@ -1681,22 +1688,9 @@ impl<'a, W: Write> Writer<'a, W> {
             // This is where we can generate intermediate constants for some expression types.
             Statement::Emit(ref range) => {
                 for handle in range.clone() {
-                    let ptr_class = ctx.resolve_type(handle, &self.module.types).pointer_space();
-                    let expr_name = if ptr_class.is_some() {
-                        // GLSL can't save a pointer-valued expression in a variable,
-                        // but we shouldn't ever need to: they should never be named expressions,
-                        // and none of the expression types flagged by bake_ref_count can be pointer-valued.
-                        None
-                    } else if let Some(name) = ctx.named_expressions.get(&handle) {
-                        // Front end provides names for all variables at the start of writing.
-                        // But we write them to step by step. We need to recache them
-                        // Otherwise, we could accidentally write variable name instead of full expression.
-                        // Also, we use sanitized names! It defense backend from generating variable with name from reserved keywords.
-                        Some(self.namer.call(name))
-                    } else if self.need_bake_expressions.contains(&handle) {
-                        Some(Baked(handle).to_string())
-                    } else {
-                        None
+                    let expr_name = match self.hoisted_loop_expressions.get(&handle) {
+                        Some(name) => Some(name.clone()),
+                        None => self.baked_name(handle, ctx),
                     };
 
                     // If we are going to write an `ImageLoad` next and the target image
@@ -1899,6 +1893,7 @@ impl<'a, W: Write> Writer<'a, W> {
             } => {
                 self.continue_ctx.enter_loop();
                 if !continuing.is_empty() || break_if.is_some() {
+                    self.hoist_continuing_dependencies(level, body, continuing, break_if, ctx)?;
                     let gate_name = self.namer.call("loop_init");
                     writeln!(self.out, "{level}bool {gate_name} = true;")?;
                     writeln!(self.out, "{level}while(true) {{")?;
@@ -2095,7 +2090,7 @@ impl<'a, W: Write> Writer<'a, W> {
                 // This is done in `Emit` by never emitting a variable name for pointer variables
                 self.write_control_barrier(crate::Barrier::WORK_GROUP, level)?;
 
-                let result_name = Baked(result).to_string();
+                let result_name = self.result_name(result);
                 write!(self.out, "{level}")?;
                 // Expressions cannot have side effects, so just writing the expression here is fine.
                 self.write_named_expr(pointer, result_name, result, ctx)?;
@@ -2120,15 +2115,8 @@ impl<'a, W: Write> Writer<'a, W> {
             } => {
                 write!(self.out, "{level}")?;
                 if let Some(expr) = result {
-                    let name = Baked(expr).to_string();
-                    let result = self.module.functions[function].result.as_ref().unwrap();
-                    self.write_type(result.ty)?;
-                    write!(self.out, " {name}")?;
-                    if let TypeInner::Array { base, size, .. } = self.module.types[result.ty].inner
-                    {
-                        self.write_array_size(base, size)?
-                    }
-                    write!(self.out, " = ")?;
+                    let name = self.result_name(expr);
+                    self.start_named_expr(expr, &name, ctx)?;
                     self.named_expressions.insert(expr, name);
                 }
                 write!(self.out, "{}(", &self.names[&NameKey::Function(function)])?;
@@ -2159,10 +2147,16 @@ impl<'a, W: Write> Writer<'a, W> {
                         compare: Some(compare_expr),
                     } => {
                         let result_handle = result.expect("CompareExchange must have a result");
-                        let res_name = Baked(result_handle).to_string();
-                        self.write_type(ctx.info[result_handle].ty.handle().unwrap())?;
-                        write!(self.out, " {res_name};")?;
-                        write!(self.out, " {res_name}.old_value = atomicCompSwap(")?;
+                        let res_name = self.result_name(result_handle);
+                        if self
+                            .hoisted_loop_expressions
+                            .remove(&result_handle)
+                            .is_none()
+                        {
+                            self.write_type(ctx.info[result_handle].ty.handle().unwrap())?;
+                            write!(self.out, " {res_name}; ")?;
+                        }
+                        write!(self.out, "{res_name}.old_value = atomicCompSwap(")?;
                         self.write_expr(pointer, ctx)?;
                         write!(self.out, ", ")?;
                         self.write_expr(compare_expr, ctx)?;
@@ -2180,9 +2174,8 @@ impl<'a, W: Write> Writer<'a, W> {
                     }
                     _ => {
                         if let Some(result) = result {
-                            let res_name = Baked(result).to_string();
-                            self.write_type(ctx.info[result].ty.handle().unwrap())?;
-                            write!(self.out, " {res_name} = ")?;
+                            let res_name = self.result_name(result);
+                            self.start_named_expr(result, &res_name, ctx)?;
                             self.named_expressions.insert(result, res_name);
                         }
                         let fun_str = fun.to_glsl();
@@ -2212,10 +2205,8 @@ impl<'a, W: Write> Writer<'a, W> {
             Statement::RayQuery { .. } => unreachable!(),
             Statement::SubgroupBallot { result, predicate } => {
                 write!(self.out, "{level}")?;
-                let res_name = Baked(result).to_string();
-                let res_ty = ctx.info[result].ty.inner_with(&self.module.types);
-                self.write_value_type(res_ty)?;
-                write!(self.out, " {res_name} = ")?;
+                let res_name = self.result_name(result);
+                self.start_named_expr(result, &res_name, ctx)?;
                 self.named_expressions.insert(result, res_name);
 
                 write!(self.out, "subgroupBallot(")?;
@@ -2232,10 +2223,8 @@ impl<'a, W: Write> Writer<'a, W> {
                 result,
             } => {
                 write!(self.out, "{level}")?;
-                let res_name = Baked(result).to_string();
-                let res_ty = ctx.info[result].ty.inner_with(&self.module.types);
-                self.write_value_type(res_ty)?;
-                write!(self.out, " {res_name} = ")?;
+                let res_name = self.result_name(result);
+                self.start_named_expr(result, &res_name, ctx)?;
                 self.named_expressions.insert(result, res_name);
 
                 match (collective_op, op) {
@@ -2289,10 +2278,8 @@ impl<'a, W: Write> Writer<'a, W> {
                 result,
             } => {
                 write!(self.out, "{level}")?;
-                let res_name = Baked(result).to_string();
-                let res_ty = ctx.info[result].ty.inner_with(&self.module.types);
-                self.write_value_type(res_ty)?;
-                write!(self.out, " {res_name} = ")?;
+                let res_name = self.result_name(result);
+                self.start_named_expr(result, &res_name, ctx)?;
                 self.named_expressions.insert(result, res_name);
 
                 match mode {
@@ -2493,7 +2480,13 @@ impl<'a, W: Write> Writer<'a, W> {
     ) -> BackendResult {
         use crate::Expression;
 
-        if let Some(name) = self.named_expressions.get(&expr) {
+        // The `continuing` block reads what the body left in a hoisted
+        // temporary on the previous pass.
+        let stored = self
+            .named_expressions
+            .get(&expr)
+            .or_else(|| self.hoisted_loop_expressions.get(&expr));
+        if let Some(name) = stored {
             write!(self.out, "{name}")?;
             return Ok(());
         }
@@ -4490,6 +4483,39 @@ impl<'a, W: Write> Writer<'a, W> {
         named: Handle<crate::Expression>,
         ctx: &back::FunctionCtx,
     ) -> BackendResult {
+        self.start_named_expr(named, &name, ctx)?;
+        self.write_expr(handle, ctx)?;
+        writeln!(self.out, ";")?;
+        self.named_expressions.insert(named, name);
+
+        Ok(())
+    }
+
+    /// Writes `name = `, declaring `name` to hold `named`'s value first unless
+    /// it was hoisted ahead of an enclosing loop.
+    fn start_named_expr(
+        &mut self,
+        named: Handle<crate::Expression>,
+        name: &str,
+        ctx: &back::FunctionCtx,
+    ) -> BackendResult {
+        if self.hoisted_loop_expressions.remove(&named).is_some() {
+            write!(self.out, "{name}")?;
+        } else {
+            self.write_declaration(named, name, ctx)?;
+        }
+        write!(self.out, " = ")?;
+        Ok(())
+    }
+
+    /// Writes the type of `named`'s value and `name`, declaring a temporary to
+    /// hold it.
+    fn write_declaration(
+        &mut self,
+        named: Handle<crate::Expression>,
+        name: &str,
+        ctx: &back::FunctionCtx,
+    ) -> BackendResult {
         match ctx.info[named].ty {
             proc::TypeResolution::Handle(ty_handle) => match self.module.types[ty_handle].inner {
                 TypeInner::Struct { .. } => {
@@ -4511,11 +4537,93 @@ impl<'a, W: Write> Writer<'a, W> {
         if let TypeInner::Array { base, size, .. } = *resolved {
             self.write_array_size(base, size)?;
         }
-        write!(self.out, " = ")?;
-        self.write_expr(handle, ctx)?;
-        writeln!(self.out, ";")?;
-        self.named_expressions.insert(named, name);
 
+        Ok(())
+    }
+
+    /// The name of the temporary holding a statement's `result`.
+    fn result_name(&self, result: Handle<crate::Expression>) -> String {
+        self.hoisted_loop_expressions
+            .get(&result)
+            .cloned()
+            .unwrap_or_else(|| Baked(result).to_string())
+    }
+
+    /// Whether writing `handle` out stores its value in a temporary.
+    fn bakes_expression(&self, handle: Handle<crate::Expression>, ctx: &back::FunctionCtx) -> bool {
+        // A statement's result has no inline form.
+        if back::continuing::is_statement_result(&ctx.expressions[handle]) {
+            return true;
+        }
+        // GLSL can't save a pointer-valued expression in a variable,
+        // but we shouldn't ever need to: they should never be named expressions,
+        // and none of the expression types flagged by bake_ref_count can be pointer-valued.
+        if ctx
+            .resolve_type(handle, &self.module.types)
+            .pointer_space()
+            .is_some()
+        {
+            return false;
+        }
+        ctx.named_expressions.contains_key(&handle) || self.need_bake_expressions.contains(&handle)
+    }
+
+    /// The name of the temporary to store `handle`'s value in, if writing it
+    /// out introduces one. This reserves the name, so call it once per
+    /// expression.
+    fn baked_name(
+        &mut self,
+        handle: Handle<crate::Expression>,
+        ctx: &back::FunctionCtx,
+    ) -> Option<String> {
+        if !self.bakes_expression(handle, ctx) {
+            return None;
+        }
+        Some(match ctx.named_expressions.get(&handle) {
+            // Front end provides names for all variables at the start of writing.
+            // But we write them to step by step. We need to recache them
+            // Otherwise, we could accidentally write variable name instead of full expression.
+            // Also, we use sanitized names! It defense backend from generating variable with name from reserved keywords.
+            Some(name) => self.namer.call(name),
+            None => Baked(handle).to_string(),
+        })
+    }
+
+    /// Declares ahead of a loop the temporaries its `continuing` block needs
+    /// from `body`, which we write below it, so `continuing` can name them and
+    /// the body only assigns them.
+    fn hoist_continuing_dependencies(
+        &mut self,
+        level: back::Level,
+        body: &crate::Block,
+        continuing: &crate::Block,
+        break_if: Option<Handle<crate::Expression>>,
+        ctx: &back::FunctionCtx,
+    ) -> BackendResult {
+        let function = match ctx.ty {
+            back::FunctionType::Function(handle) => &self.module.functions[handle],
+            back::FunctionType::EntryPoint(index) => {
+                &self.module.entry_points[index as usize].function
+            }
+        };
+        let hoisted = back::continuing::continuing_dependencies(
+            self.module,
+            function,
+            ctx.info,
+            body,
+            continuing,
+            break_if,
+            |handle| self.bakes_expression(handle, ctx),
+        );
+        for handle in hoisted {
+            let Some(name) = self.baked_name(handle, ctx) else {
+                continue;
+            };
+            write!(self.out, "{level}")?;
+            self.write_declaration(handle, &name, ctx)?;
+            writeln!(self.out, ";")?;
+            self.hoisted_loop_expressions.insert(handle, name);
+        }
         Ok(())
     }
 

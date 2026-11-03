@@ -4011,7 +4011,7 @@ impl<W: Write> Writer<W> {
     ) -> bool {
         // There is no way to write the result of a statement inline, so it
         // always gets a temporary, whether or not anything asked for one.
-        if super::hoist::is_statement_result(&context.function.expressions[handle]) {
+        if back::continuing::is_statement_result(&context.function.expressions[handle]) {
             return true;
         }
 
