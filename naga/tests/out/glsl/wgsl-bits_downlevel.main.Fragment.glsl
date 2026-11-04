@@ -20,7 +20,7 @@ void main() {
     uint _e31 = u;
     f4_ = (vec4(_e31 & 0xFFu, _e31 >> 8 & 0xFFu, _e31 >> 16 & 0xFFu, _e31 >> 24) / 255.0);
     uint _e33 = u;
-    f2_ = (vec2(ivec2(_e33 << 16, _e33) >> 16) / 32767.0);
+    f2_ = max(vec2(ivec2(_e33 << 16, _e33) >> 16) / 32767.0, vec2(-1.0));
     uint _e35 = u;
     f2_ = (vec2(_e35 & 0xFFFFu, _e35 >> 16) / 65535.0);
     int _e37 = i;

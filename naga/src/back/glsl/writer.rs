@@ -985,13 +985,6 @@ impl<'a, W: Write> Writer<'a, W> {
                         self.need_bake_expressions.insert(arg);
                     }
                     /* crate::MathFunction::Pack4x8unorm | */
-                    crate::MathFunction::Unpack4x8snorm
-                        if !self.options.version.supports_pack_unpack_4x8() =>
-                    {
-                        // We have a fallback if the platform doesn't natively support these
-                        self.need_bake_expressions.insert(arg);
-                    }
-                    /* crate::MathFunction::Pack4x8unorm | */
                     crate::MathFunction::Unpack4x8unorm
                         if !self.options.version.supports_pack_unpack_4x8() =>
                     {
@@ -3676,11 +3669,12 @@ impl<'a, W: Write> Writer<'a, W> {
                         } else {
                             let scale = 32767;
 
-                            write!(self.out, "(vec2(ivec2(")?;
+                            // WGSL reads -32768 as -1, like -32767.
+                            write!(self.out, "max(vec2(ivec2(")?;
                             self.write_expr(arg, ctx)?;
                             write!(self.out, " << 16, ")?;
                             self.write_expr(arg, ctx)?;
-                            write!(self.out, ") >> 16) / {scale}.0)")?;
+                            write!(self.out, ") >> 16) / {scale}.0, vec2(-1.0))")?;
                             return Ok(());
                         }
                     }
@@ -4908,9 +4902,8 @@ impl<'a, W: Write> Writer<'a, W> {
     }
 }
 
-/// Whether `ty` holds arrays of structs that hold no array. Adreno misreads a
-/// dynamic index into structs holding arrays however they are declared, so
-/// those still fail to compile rather than read garbage.
+/// Whether `ty` holds arrays of structs that hold no array. Adreno misreads
+/// those that do however they are declared, and const fails most to compile.
 fn holds_struct_array(types: &crate::UniqueArena<crate::Type>, ty: Handle<crate::Type>) -> bool {
     let mut elements = Vec::new();
     struct_elements(types, ty, &mut elements);
