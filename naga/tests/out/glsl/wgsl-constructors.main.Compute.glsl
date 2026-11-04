@@ -18,7 +18,7 @@ const uint cz2_ = 0u;
 const float cz3_ = 0.0;
 const uvec2 cz4_ = uvec2(0u);
 const mat2x2 cz5_ = mat2x2(0.0);
-const Foo cz6_[3] = Foo[3](Foo(vec4(0.0), 0), Foo(vec4(0.0), 0), Foo(vec4(0.0), 0));
+Foo cz6_[3] = Foo[3](Foo(vec4(0.0), 0), Foo(vec4(0.0), 0), Foo(vec4(0.0), 0));
 const Foo cz7_ = Foo(vec4(0.0), 0);
 const uvec2 cp1_ = uvec2(0u);
 

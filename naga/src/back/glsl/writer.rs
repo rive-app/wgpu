@@ -932,6 +932,16 @@ impl<'a, W: Write> Writer<'a, W> {
                 self.need_bake_expressions.insert(fun_handle);
             }
 
+            // Adreno fails to compile a dynamic index into an array of structs
+            // written inline.
+            if let Expression::Access { base, .. } = *expr {
+                if let Expression::Compose { ty, .. } = func.expressions[base] {
+                    if holds_struct_array(&self.module.types, ty) {
+                        self.need_bake_expressions.insert(base);
+                    }
+                }
+            }
+
             let inner = expr_info.ty.inner_with(&self.module.types);
 
             if let Expression::Math {
@@ -1561,8 +1571,12 @@ impl<'a, W: Write> Writer<'a, W> {
 
     /// Helper method used to write global constants
     fn write_global_constant(&mut self, handle: Handle<crate::Constant>) -> BackendResult {
-        write!(self.out, "const ")?;
         let constant = &self.module.constants[handle];
+        // Adreno fails to compile a dynamic index into a const array of
+        // structs, and ANGLE on Metal fails to draw one whose structs hold a matrix.
+        if !holds_struct_array(&self.module.types, constant.ty) {
+            write!(self.out, "const ")?;
+        }
         self.write_type(constant.ty)?;
         let name = &self.names[&NameKey::Constant(handle)];
         write!(self.out, " {name}")?;
@@ -4891,6 +4905,47 @@ impl<'a, W: Write> Writer<'a, W> {
             }
             _ => unreachable!(),
         }
+    }
+}
+
+/// Whether `ty` holds arrays of structs that hold no array. Adreno misreads a
+/// dynamic index into structs holding arrays however they are declared, so
+/// those still fail to compile rather than read garbage.
+fn holds_struct_array(types: &crate::UniqueArena<crate::Type>, ty: Handle<crate::Type>) -> bool {
+    let mut elements = Vec::new();
+    struct_elements(types, ty, &mut elements);
+    !elements.is_empty() && !elements.iter().any(|&element| holds_array(types, element))
+}
+
+/// Adds the struct type of every array `ty` holds to `elements`.
+fn struct_elements(
+    types: &crate::UniqueArena<crate::Type>,
+    ty: Handle<crate::Type>,
+    elements: &mut Vec<Handle<crate::Type>>,
+) {
+    match types[ty].inner {
+        TypeInner::Array { base, .. } => {
+            if let TypeInner::Struct { .. } = types[base].inner {
+                elements.push(base);
+            }
+            struct_elements(types, base, elements);
+        }
+        TypeInner::Struct { ref members, .. } => {
+            for member in members {
+                struct_elements(types, member.ty, elements);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn holds_array(types: &crate::UniqueArena<crate::Type>, ty: Handle<crate::Type>) -> bool {
+    match types[ty].inner {
+        TypeInner::Array { .. } => true,
+        TypeInner::Struct { ref members, .. } => {
+            members.iter().any(|member| holds_array(types, member.ty))
+        }
+        _ => false,
     }
 }
 
