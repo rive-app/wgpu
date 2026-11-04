@@ -783,7 +783,12 @@ impl<'a, W: Write> Writer<'a, W> {
             self.write_array_size(base, size)?;
         }
 
-        if global.space.initializable() && is_value_init_supported(self.module, global.ty) {
+        let by_element = global.space == crate::AddressSpace::Private
+            && element_by_element(&self.module.types, global.ty).is_some();
+        if global.space.initializable()
+            && is_value_init_supported(self.module, global.ty)
+            && !by_element
+        {
             write!(self.out, " = ")?;
             if let Some(init) = global.init {
                 self.write_const_expr(init, &self.module.global_expressions)?;
@@ -936,7 +941,8 @@ impl<'a, W: Write> Writer<'a, W> {
             // written inline.
             if let Expression::Access { base, .. } = *expr {
                 if let Expression::Compose { ty, .. } = func.expressions[base] {
-                    if holds_struct_array(&self.module.types, ty) {
+                    let types = &self.module.types;
+                    if holds_struct_array(types, ty) || element_by_element(types, ty).is_some() {
                         self.need_bake_expressions.insert(base);
                     }
                 }
@@ -1417,6 +1423,10 @@ impl<'a, W: Write> Writer<'a, W> {
             self.write_workgroup_variables_initialization(&ctx)?;
         }
 
+        if let back::FunctionType::EntryPoint(_) = ctx.ty {
+            self.write_global_fills(info)?;
+        }
+
         // Compose the function arguments from globals, in case of an entry point.
         if let back::FunctionType::EntryPoint(ep_index) = ctx.ty {
             let stage = self.module.entry_points[ep_index as usize].stage;
@@ -1471,6 +1481,17 @@ impl<'a, W: Write> Writer<'a, W> {
             // Write size for array type
             if let TypeInner::Array { base, size, .. } = self.module.types[local.ty].inner {
                 self.write_array_size(base, size)?;
+            }
+            if let Some((length, base)) = element_by_element(&self.module.types, local.ty) {
+                write!(self.out, "; ")?;
+                let name = self.names[&ctx.name_key(handle)].clone();
+                self.write_by_element(
+                    length,
+                    |this| Ok(write!(this.out, "{name}")?),
+                    |this, k| this.write_function_element(local.init, base, k, &ctx),
+                )?;
+                writeln!(self.out)?;
+                continue;
             }
             // Write the local initializer if needed
             if let Some(init) = local.init {
@@ -1564,9 +1585,10 @@ impl<'a, W: Write> Writer<'a, W> {
     /// Helper method used to write global constants
     fn write_global_constant(&mut self, handle: Handle<crate::Constant>) -> BackendResult {
         let constant = &self.module.constants[handle];
+        let by_element = element_by_element(&self.module.types, constant.ty).is_some();
         // Adreno fails to compile a dynamic index into a const array of
         // structs, and ANGLE on Metal fails to draw one whose structs hold a matrix.
-        if !holds_struct_array(&self.module.types, constant.ty) {
+        if !holds_struct_array(&self.module.types, constant.ty) && !by_element {
             write!(self.out, "const ")?;
         }
         self.write_type(constant.ty)?;
@@ -1574,6 +1596,11 @@ impl<'a, W: Write> Writer<'a, W> {
         write!(self.out, " {name}")?;
         if let TypeInner::Array { base, size, .. } = self.module.types[constant.ty].inner {
             self.write_array_size(base, size)?;
+        }
+        // Each entry point fills it; see `write_global_fills`.
+        if by_element {
+            writeln!(self.out, ";")?;
+            return Ok(());
         }
         write!(self.out, " = ")?;
         self.write_const_expr(constant.init, &self.module.global_expressions)?;
@@ -2083,6 +2110,17 @@ impl<'a, W: Write> Writer<'a, W> {
                     write!(self.out, ", ")?;
                     self.write_expr(value, ctx)?;
                     writeln!(self.out, ");")?
+                } else if let Some((length, base)) = ctx.info[value]
+                    .ty
+                    .handle()
+                    .and_then(|ty| element_by_element(&self.module.types, ty))
+                {
+                    self.write_by_element(
+                        length,
+                        |this| this.write_expr(pointer, ctx),
+                        |this, k| this.write_function_element(Some(value), base, k, ctx),
+                    )?;
+                    writeln!(self.out)?
                 } else {
                     self.write_expr(pointer, ctx)?;
                     write!(self.out, " = ")?;
@@ -4520,11 +4558,137 @@ impl<'a, W: Write> Writer<'a, W> {
         named: Handle<crate::Expression>,
         ctx: &back::FunctionCtx,
     ) -> BackendResult {
-        self.start_named_expr(named, &name, ctx)?;
-        self.write_expr(handle, ctx)?;
-        writeln!(self.out, ";")?;
+        if let Some((length, base)) = ctx.info[named]
+            .ty
+            .handle()
+            .and_then(|ty| element_by_element(&self.module.types, ty))
+        {
+            if self.hoisted_loop_expressions.remove(&named).is_none() {
+                self.write_declaration(named, &name, ctx)?;
+                write!(self.out, "; ")?;
+            }
+            self.write_by_element(
+                length,
+                |this| Ok(write!(this.out, "{name}")?),
+                |this, k| this.write_function_element(Some(handle), base, k, ctx),
+            )?;
+            writeln!(self.out)?;
+        } else {
+            self.start_named_expr(named, &name, ctx)?;
+            self.write_expr(handle, ctx)?;
+            writeln!(self.out, ";")?;
+        }
         self.named_expressions.insert(named, name);
 
+        Ok(())
+    }
+
+    /// Writes `target[k] = element;` for each of `length` elements.
+    fn write_by_element(
+        &mut self,
+        length: u32,
+        target: impl Fn(&mut Self) -> BackendResult,
+        element: impl Fn(&mut Self, u32) -> BackendResult,
+    ) -> BackendResult {
+        for k in 0..length {
+            if k != 0 {
+                write!(self.out, " ")?;
+            }
+            target(self)?;
+            write!(self.out, "[{k}] = ")?;
+            element(self, k)?;
+            write!(self.out, ";")?;
+        }
+        Ok(())
+    }
+
+    /// Writes element `k` of the array `source` evaluates to, or of zeros.
+    fn write_function_element(
+        &mut self,
+        source: Option<Handle<crate::Expression>>,
+        base: Handle<crate::Type>,
+        k: u32,
+        ctx: &back::FunctionCtx,
+    ) -> BackendResult {
+        let Some(source) = source else {
+            return self.write_zero_init_value(base);
+        };
+        // A continuing block is written above the body, which declares the
+        // values it reads ahead of the loop.
+        if !self.named_expressions.contains_key(&source)
+            && !self.hoisted_loop_expressions.contains_key(&source)
+        {
+            match ctx.expressions[source] {
+                crate::Expression::Compose { ref components, .. } => {
+                    return self.write_expr(components[k as usize], ctx);
+                }
+                crate::Expression::ZeroValue(_) => return self.write_zero_init_value(base),
+                _ => {}
+            }
+        }
+        self.write_expr(source, ctx)?;
+        Ok(write!(self.out, "[{k}]")?)
+    }
+
+    /// Writes element `k` of the global initializer `init`, or of zeros.
+    fn write_global_element(
+        &mut self,
+        init: Option<Handle<crate::Expression>>,
+        base: Handle<crate::Type>,
+        k: u32,
+    ) -> BackendResult {
+        let Some(init) = init else {
+            return self.write_zero_init_value(base);
+        };
+        let expressions = &self.module.global_expressions;
+        match expressions[init] {
+            crate::Expression::Compose { ref components, .. } => {
+                self.write_const_expr(components[k as usize], expressions)
+            }
+            crate::Expression::ZeroValue(_) => self.write_zero_init_value(base),
+            _ => {
+                self.write_const_expr(init, expressions)?;
+                Ok(write!(self.out, "[{k}]")?)
+            }
+        }
+    }
+
+    /// Fills the constants and the private globals this entry point uses that
+    /// `element_by_element` leaves declared without an initializer.
+    fn write_global_fills(&mut self, info: &valid::FunctionInfo) -> BackendResult {
+        let module = self.module;
+        for (handle, constant) in module.constants.iter() {
+            let Some((length, base)) = element_by_element(&module.types, constant.ty) else {
+                continue;
+            };
+            if constant.name.is_none() {
+                continue;
+            }
+            let name = self.names[&NameKey::Constant(handle)].clone();
+            write!(self.out, "{}", back::INDENT)?;
+            self.write_by_element(
+                length,
+                |this| Ok(write!(this.out, "{name}")?),
+                |this, k| this.write_global_element(Some(constant.init), base, k),
+            )?;
+            writeln!(self.out)?;
+        }
+        for (handle, global) in module.global_variables.iter() {
+            let Some((length, base)) = element_by_element(&module.types, global.ty) else {
+                continue;
+            };
+            if global.space != crate::AddressSpace::Private || info[handle].is_empty() {
+                continue;
+            }
+            let name = self.get_global_name(handle, global);
+            write!(self.out, "{}", back::INDENT)?;
+            self.write_by_element(
+                length,
+                |this| Ok(write!(this.out, "{name}")?),
+                |this, k| this.write_global_element(global.init, base, k),
+            )?;
+            writeln!(self.out)?;
+        }
         Ok(())
     }
 
@@ -4932,8 +5096,8 @@ impl<'a, W: Write> Writer<'a, W> {
     }
 }
 
-/// Whether `ty` holds arrays of structs that hold no array. Adreno misreads
-/// those that do however they are declared, and const fails most to compile.
+/// Whether `ty` holds arrays of structs that hold no array; see
+/// `element_by_element` for those that do.
 fn holds_struct_array(types: &crate::UniqueArena<crate::Type>, ty: Handle<crate::Type>) -> bool {
     let mut elements = Vec::new();
     struct_elements(types, ty, &mut elements);
@@ -4959,6 +5123,25 @@ fn struct_elements(
             }
         }
         _ => {}
+    }
+}
+
+/// The length and element type of `ty` when it is an array of structs that
+/// hold arrays, which Adreno misreads when initialized or assigned whole, so we
+/// assign it one element at a time.
+fn element_by_element(
+    types: &crate::UniqueArena<crate::Type>,
+    ty: Handle<crate::Type>,
+) -> Option<(u32, Handle<crate::Type>)> {
+    match types[ty].inner {
+        TypeInner::Array {
+            base,
+            size: crate::ArraySize::Constant(length),
+            ..
+        } if matches!(types[base].inner, TypeInner::Struct { .. }) && holds_array(types, base) => {
+            Some((length.get(), base))
+        }
+        _ => None,
     }
 }
 
