@@ -3690,15 +3690,14 @@ impl<'a, W: Write> Writer<'a, W> {
                         } else {
                             let scale = 127;
 
-                            write!(self.out, "(vec4(ivec4(")?;
+                            // Bytes sign extend by xor, as Mali folds signed shifts of a
+                            // literal wrongly, and WGSL reads -128 as -1, like -127.
+                            write!(self.out, "max(vec4((ivec4(uvec4(")?;
                             self.write_expr(arg, ctx)?;
-                            write!(self.out, " << 24, ")?;
-                            self.write_expr(arg, ctx)?;
-                            write!(self.out, " << 16, ")?;
-                            self.write_expr(arg, ctx)?;
-                            write!(self.out, " << 8, ")?;
-                            self.write_expr(arg, ctx)?;
-                            write!(self.out, ") >> 24) / {scale}.0)")?;
+                            write!(
+                                self.out,
+                                ") >> uvec4(0u, 8u, 16u, 24u) & 255u) ^ 128) - 128) / {scale}.0, vec4(-1.0))"
+                            )?;
                             return Ok(());
                         }
                     }

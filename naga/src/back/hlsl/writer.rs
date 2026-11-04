@@ -3296,11 +3296,12 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             Function::Unpack2x16snorm => {
                 let scale = 32767;
 
-                write!(self.out, "(float2(int2(")?;
+                // WGSL reads -32768 as -1, like -32767.
+                write!(self.out, "max(float2(int2(")?;
                 self.write_expr(module, arg, func_ctx)?;
                 write!(self.out, " << 16, ")?;
                 self.write_expr(module, arg, func_ctx)?;
-                write!(self.out, ") >> 16) / {scale}.0)")?;
+                write!(self.out, ") >> 16) / {scale}.0, -1.0)")?;
             }
             Function::Unpack2x16unorm => {
                 let scale = 65535;
@@ -3314,7 +3315,8 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             Function::Unpack4x8snorm => {
                 let scale = 127;
 
-                write!(self.out, "(float4(int4(")?;
+                // WGSL reads the byte -128 as -1, like -127.
+                write!(self.out, "max(float4(int4(")?;
                 self.write_expr(module, arg, func_ctx)?;
                 write!(self.out, " << 24, ")?;
                 self.write_expr(module, arg, func_ctx)?;
@@ -3322,7 +3324,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 self.write_expr(module, arg, func_ctx)?;
                 write!(self.out, " << 8, ")?;
                 self.write_expr(module, arg, func_ctx)?;
-                write!(self.out, ") >> 24) / {scale}.0)")?;
+                write!(self.out, ") >> 24) / {scale}.0, -1.0)")?;
             }
             Function::Unpack4x8unorm => {
                 let scale = 255;

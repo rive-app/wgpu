@@ -20,7 +20,7 @@ void main() {
     uvec4 _e27 = u4_;
     u = (_e27[0] & 0xFFu) | ((_e27[1] & 0xFFu) << 8) | ((_e27[2] & 0xFFu) << 16) | ((_e27[3] & 0xFFu) << 24);
     uint _e29 = u;
-    f4_ = (vec4(ivec4(_e29 << 24, _e29 << 16, _e29 << 8, _e29) >> 24) / 127.0);
+    f4_ = max(vec4((ivec4(uvec4(_e29) >> uvec4(0u, 8u, 16u, 24u) & 255u) ^ 128) - 128) / 127.0, vec4(-1.0));
     uint _e31 = u;
     f4_ = (vec4(_e31 & 0xFFu, _e31 >> 8 & 0xFFu, _e31 >> 16 & 0xFFu, _e31 >> 24) / 255.0);
     uint _e33 = u;
