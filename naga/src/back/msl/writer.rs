@@ -2788,6 +2788,19 @@ impl<W: Write> Writer<W> {
                 }
 
                 match fun {
+                    // WGSL rounds halves up, where Metal rounds them to even, so the
+                    // argument is rounded before the pack, which clamps it.
+                    Mf::Pack4x8snorm | Mf::Pack4x8unorm | Mf::Pack2x16snorm | Mf::Pack2x16unorm => {
+                        let scale = match fun {
+                            Mf::Pack4x8snorm => 127,
+                            Mf::Pack4x8unorm => 255,
+                            Mf::Pack2x16snorm => 32767,
+                            _ => 65535,
+                        };
+                        write!(self.out, "{NAMESPACE}::{fun_name}({NAMESPACE}::floor(")?;
+                        self.put_expression(arg, context, false)?;
+                        write!(self.out, " * {scale}.0 + 0.5) / {scale}.0)")?;
+                    }
                     Mf::Abs if arg_type.scalar_kind() == Some(crate::ScalarKind::Sint) => {
                         write!(self.out, "{ABS_FUNCTION}(")?;
                         self.put_expression(arg, context, true)?;

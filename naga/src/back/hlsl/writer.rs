@@ -3187,67 +3187,80 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 self.write_expr(module, arg, func_ctx)?;
                 write!(self.out, "[1]) << 16)")?;
             }
+            // WGSL rounds halves up, where HLSL rounds them to even.
             Function::Pack2x16snorm => {
                 let scale = 32767;
 
-                write!(self.out, "uint((int(round(clamp(")?;
+                write!(self.out, "uint((int(floor(clamp(")?;
                 self.write_expr(module, arg, func_ctx)?;
                 write!(
                     self.out,
-                    "[0], -1.0, 1.0) * {scale}.0)) & 0xFFFF) | ((int(round(clamp("
+                    "[0], -1.0, 1.0) * {scale}.0 + 0.5)) & 0xFFFF) | ((int(floor(clamp("
                 )?;
                 self.write_expr(module, arg, func_ctx)?;
-                write!(self.out, "[1], -1.0, 1.0) * {scale}.0)) & 0xFFFF) << 16))",)?;
+                write!(
+                    self.out,
+                    "[1], -1.0, 1.0) * {scale}.0 + 0.5)) & 0xFFFF) << 16))",
+                )?;
             }
             Function::Pack2x16unorm => {
                 let scale = 65535;
 
-                write!(self.out, "(uint(round(clamp(")?;
+                write!(self.out, "(uint(floor(clamp(")?;
                 self.write_expr(module, arg, func_ctx)?;
-                write!(self.out, "[0], 0.0, 1.0) * {scale}.0)) | uint(round(clamp(")?;
+                write!(
+                    self.out,
+                    "[0], 0.0, 1.0) * {scale}.0 + 0.5)) | uint(floor(clamp("
+                )?;
                 self.write_expr(module, arg, func_ctx)?;
-                write!(self.out, "[1], 0.0, 1.0) * {scale}.0)) << 16)")?;
+                write!(self.out, "[1], 0.0, 1.0) * {scale}.0 + 0.5)) << 16)")?;
             }
             Function::Pack4x8snorm => {
                 let scale = 127;
 
-                write!(self.out, "uint((int(round(clamp(")?;
+                write!(self.out, "uint((int(floor(clamp(")?;
                 self.write_expr(module, arg, func_ctx)?;
                 write!(
                     self.out,
-                    "[0], -1.0, 1.0) * {scale}.0)) & 0xFF) | ((int(round(clamp("
+                    "[0], -1.0, 1.0) * {scale}.0 + 0.5)) & 0xFF) | ((int(floor(clamp("
                 )?;
                 self.write_expr(module, arg, func_ctx)?;
                 write!(
                     self.out,
-                    "[1], -1.0, 1.0) * {scale}.0)) & 0xFF) << 8) | ((int(round(clamp("
+                    "[1], -1.0, 1.0) * {scale}.0 + 0.5)) & 0xFF) << 8) | ((int(floor(clamp("
                 )?;
                 self.write_expr(module, arg, func_ctx)?;
                 write!(
                     self.out,
-                    "[2], -1.0, 1.0) * {scale}.0)) & 0xFF) << 16) | ((int(round(clamp("
+                    "[2], -1.0, 1.0) * {scale}.0 + 0.5)) & 0xFF) << 16) | ((int(floor(clamp("
                 )?;
                 self.write_expr(module, arg, func_ctx)?;
-                write!(self.out, "[3], -1.0, 1.0) * {scale}.0)) & 0xFF) << 24))",)?;
+                write!(
+                    self.out,
+                    "[3], -1.0, 1.0) * {scale}.0 + 0.5)) & 0xFF) << 24))",
+                )?;
             }
             Function::Pack4x8unorm => {
                 let scale = 255;
 
-                write!(self.out, "(uint(round(clamp(")?;
-                self.write_expr(module, arg, func_ctx)?;
-                write!(self.out, "[0], 0.0, 1.0) * {scale}.0)) | uint(round(clamp(")?;
+                write!(self.out, "(uint(floor(clamp(")?;
                 self.write_expr(module, arg, func_ctx)?;
                 write!(
                     self.out,
-                    "[1], 0.0, 1.0) * {scale}.0)) << 8 | uint(round(clamp("
+                    "[0], 0.0, 1.0) * {scale}.0 + 0.5)) | uint(floor(clamp("
                 )?;
                 self.write_expr(module, arg, func_ctx)?;
                 write!(
                     self.out,
-                    "[2], 0.0, 1.0) * {scale}.0)) << 16 | uint(round(clamp("
+                    "[1], 0.0, 1.0) * {scale}.0 + 0.5)) << 8 | uint(floor(clamp("
                 )?;
                 self.write_expr(module, arg, func_ctx)?;
-                write!(self.out, "[3], 0.0, 1.0) * {scale}.0)) << 24)")?;
+                write!(
+                    self.out,
+                    "[2], 0.0, 1.0) * {scale}.0 + 0.5)) << 16 | uint(floor(clamp("
+                )?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, "[3], 0.0, 1.0) * {scale}.0 + 0.5)) << 24)")?;
             }
             fun @ (Function::Pack4xI8
             | Function::Pack4xU8

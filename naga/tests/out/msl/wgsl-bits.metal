@@ -18,13 +18,13 @@ kernel void main_(
     metal::float2 f2_ = metal::float2(0.0);
     metal::float4 f4_ = metal::float4(0.0);
     metal::float4 _e28 = f4_;
-    u = metal::pack_float_to_snorm4x8(_e28);
+    u = metal::pack_float_to_snorm4x8(metal::floor(_e28 * 127.0 + 0.5) / 127.0);
     metal::float4 _e30 = f4_;
-    u = metal::pack_float_to_unorm4x8(_e30);
+    u = metal::pack_float_to_unorm4x8(metal::floor(_e30 * 255.0 + 0.5) / 255.0);
     metal::float2 _e32 = f2_;
-    u = metal::pack_float_to_snorm2x16(_e32);
+    u = metal::pack_float_to_snorm2x16(metal::floor(_e32 * 32767.0 + 0.5) / 32767.0);
     metal::float2 _e34 = f2_;
-    u = metal::pack_float_to_unorm2x16(_e34);
+    u = metal::pack_float_to_unorm2x16(metal::floor(_e34 * 65535.0 + 0.5) / 65535.0);
     metal::float2 _e36 = f2_;
     u = as_type<uint>(half2(_e36));
     metal::int4 _e38 = i4_;

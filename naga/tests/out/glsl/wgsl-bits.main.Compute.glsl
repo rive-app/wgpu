@@ -18,13 +18,13 @@ void main() {
     vec2 f2_ = vec2(0.0);
     vec4 f4_ = vec4(0.0);
     vec4 _e28 = f4_;
-    u = packSnorm4x8(_e28);
+    u = packSnorm4x8(floor(_e28 * 127.0 + 0.5) / 127.0);
     vec4 _e30 = f4_;
-    u = packUnorm4x8(_e30);
+    u = packUnorm4x8(floor(_e30 * 255.0 + 0.5) / 255.0);
     vec2 _e32 = f2_;
-    u = packSnorm2x16(_e32);
+    u = packSnorm2x16(floor(_e32 * 32767.0 + 0.5) / 32767.0);
     vec2 _e34 = f2_;
-    u = packUnorm2x16(_e34);
+    u = packUnorm2x16(floor(_e34 * 65535.0 + 0.5) / 65535.0);
     vec2 _e36 = f2_;
     u = packHalf2x16(_e36);
     ivec4 _e38 = i4_;

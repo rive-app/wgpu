@@ -1861,11 +1861,82 @@ impl BlockContext<'_> {
                             unreachable!("This is validated out until a polyfill is implemented. https://github.com/gfx-rs/wgpu/issues/5276");
                         }
                     }
-                    Mf::Pack4x8unorm => MathOp::Ext(spirv::GlslStd450Op::PackUnorm4x8),
-                    Mf::Pack4x8snorm => MathOp::Ext(spirv::GlslStd450Op::PackSnorm4x8),
+                    fun @ (Mf::Pack4x8unorm
+                    | Mf::Pack4x8snorm
+                    | Mf::Pack2x16unorm
+                    | Mf::Pack2x16snorm) => {
+                        let (op, scale) = match fun {
+                            Mf::Pack4x8unorm => (spirv::GlslStd450Op::PackUnorm4x8, 255.0),
+                            Mf::Pack4x8snorm => (spirv::GlslStd450Op::PackSnorm4x8, 127.0),
+                            Mf::Pack2x16unorm => (spirv::GlslStd450Op::PackUnorm2x16, 65535.0),
+                            _ => (spirv::GlslStd450Op::PackSnorm2x16, 32767.0),
+                        };
+                        let crate::TypeInner::Vector { size, .. } = *arg_ty else {
+                            unreachable!("packs take vectors");
+                        };
+                        // WGSL rounds halves up, where GLSL.std.450 leaves them to the
+                        // driver, so the argument is rounded before the pack, which clamps it.
+                        let vector = NumericType::Vector {
+                            size,
+                            scalar: crate::Scalar::F32,
+                        };
+                        let vector_type_id = self.get_numeric_type_id(vector);
+                        self.temp_list.clear();
+                        self.temp_list.resize(
+                            size as _,
+                            self.writer.get_constant_scalar(crate::Literal::F32(scale)),
+                        );
+                        let scale_id = self.writer.get_constant_composite(
+                            LocalType::Numeric(vector).into(),
+                            &self.temp_list,
+                        );
+                        self.temp_list
+                            .fill(self.writer.get_constant_scalar(crate::Literal::F32(0.5)));
+                        let half_id = self.writer.get_constant_composite(
+                            LocalType::Numeric(vector).into(),
+                            &self.temp_list,
+                        );
+                        let scaled_id = self.gen_id();
+                        block.body.push(Instruction::binary(
+                            spirv::Op::FMul,
+                            vector_type_id,
+                            scaled_id,
+                            arg0_id,
+                            scale_id,
+                        ));
+                        let shifted_id = self.gen_id();
+                        block.body.push(Instruction::binary(
+                            spirv::Op::FAdd,
+                            vector_type_id,
+                            shifted_id,
+                            scaled_id,
+                            half_id,
+                        ));
+                        let floored_id = self.gen_id();
+                        block.body.push(Instruction::ext_inst_gl_op(
+                            self.writer.gl450_ext_inst_id,
+                            spirv::GlslStd450Op::Floor,
+                            vector_type_id,
+                            floored_id,
+                            &[shifted_id],
+                        ));
+                        let rounded_id = self.gen_id();
+                        block.body.push(Instruction::binary(
+                            spirv::Op::FDiv,
+                            vector_type_id,
+                            rounded_id,
+                            floored_id,
+                            scale_id,
+                        ));
+                        MathOp::Custom(Instruction::ext_inst_gl_op(
+                            self.writer.gl450_ext_inst_id,
+                            op,
+                            result_type_id,
+                            id,
+                            &[rounded_id],
+                        ))
+                    }
                     Mf::Pack2x16float => MathOp::Ext(spirv::GlslStd450Op::PackHalf2x16),
-                    Mf::Pack2x16unorm => MathOp::Ext(spirv::GlslStd450Op::PackUnorm2x16),
-                    Mf::Pack2x16snorm => MathOp::Ext(spirv::GlslStd450Op::PackSnorm2x16),
                     fun @ (Mf::Pack4xI8 | Mf::Pack4xU8 | Mf::Pack4xI8Clamp | Mf::Pack4xU8Clamp) => {
                         let is_signed = matches!(fun, Mf::Pack4xI8 | Mf::Pack4xI8Clamp);
                         let should_clamp = matches!(fun, Mf::Pack4xI8Clamp | Mf::Pack4xU8Clamp);

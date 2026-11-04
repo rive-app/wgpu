@@ -984,20 +984,19 @@ impl<'a, W: Write> Writer<'a, W> {
                     | crate::MathFunction::QuantizeToF16 => {
                         self.need_bake_expressions.insert(arg);
                     }
-                    /* crate::MathFunction::Pack4x8unorm | */
-                    crate::MathFunction::Unpack4x8unorm
+                    crate::MathFunction::Pack4x8snorm
+                    | crate::MathFunction::Pack4x8unorm
+                    | crate::MathFunction::Unpack4x8unorm
                         if !self.options.version.supports_pack_unpack_4x8() =>
                     {
                         self.need_bake_expressions.insert(arg);
                     }
-                    /* crate::MathFunction::Pack2x16snorm |  */
-                    crate::MathFunction::Unpack2x16snorm
+                    crate::MathFunction::Pack2x16snorm | crate::MathFunction::Unpack2x16snorm
                         if !self.options.version.supports_pack_unpack_snorm_2x16() =>
                     {
                         self.need_bake_expressions.insert(arg);
                     }
-                    /* crate::MathFunction::Pack2x16unorm | */
-                    crate::MathFunction::Unpack2x16unorm
+                    crate::MathFunction::Pack2x16unorm | crate::MathFunction::Unpack2x16unorm
                         if !self.options.version.supports_pack_unpack_unorm_2x16() =>
                     {
                         self.need_bake_expressions.insert(arg);
@@ -3582,34 +3581,65 @@ impl<'a, W: Write> Writer<'a, W> {
                     }
                     Mf::FirstLeadingBit => "findMSB",
                     // data packing
-                    Mf::Pack4x8snorm => {
-                        if self.options.version.supports_pack_unpack_4x8() {
-                            "packSnorm4x8"
-                        } else {
-                            // polyfill should go here. Needs a corresponding entry in `need_bake_expression`
-                            return Err(Error::UnsupportedExternal("packSnorm4x8".into()));
+                    fun @ (Mf::Pack4x8snorm
+                    | Mf::Pack4x8unorm
+                    | Mf::Pack2x16snorm
+                    | Mf::Pack2x16unorm) => {
+                        let (native, supported, low, scale, components) = match fun {
+                            Mf::Pack4x8snorm => (
+                                "packSnorm4x8",
+                                self.options.version.supports_pack_unpack_4x8(),
+                                "-1.0",
+                                127,
+                                4,
+                            ),
+                            Mf::Pack4x8unorm => (
+                                "packUnorm4x8",
+                                self.options.version.supports_pack_unpack_4x8(),
+                                "0.0",
+                                255,
+                                4,
+                            ),
+                            Mf::Pack2x16snorm => (
+                                "packSnorm2x16",
+                                self.options.version.supports_pack_unpack_snorm_2x16(),
+                                "-1.0",
+                                32767,
+                                2,
+                            ),
+                            _ => (
+                                "packUnorm2x16",
+                                self.options.version.supports_pack_unpack_unorm_2x16(),
+                                "0.0",
+                                65535,
+                                2,
+                            ),
+                        };
+                        // WGSL rounds halves up, where GLSL leaves them to the driver,
+                        // so the argument is rounded before a native pack, which clamps it.
+                        if supported {
+                            write!(self.out, "{native}(floor(")?;
+                            self.write_expr(arg, ctx)?;
+                            write!(self.out, " * {scale}.0 + 0.5) / {scale}.0)")?;
+                            return Ok(());
                         }
-                    }
-                    Mf::Pack4x8unorm => {
-                        if self.options.version.supports_pack_unpack_4x8() {
-                            "packUnorm4x8"
-                        } else {
-                            return Err(Error::UnsupportedExternal("packUnorm4x8".to_owned()));
+                        let bits = 32 / components;
+                        write!(self.out, "(")?;
+                        for i in 0..components {
+                            if i != 0 {
+                                write!(self.out, " | ")?;
+                            }
+                            write!(self.out, "(uint(int(floor(clamp(")?;
+                            self.write_expr(arg, ctx)?;
+                            write!(
+                                self.out,
+                                "[{i}], {low}, 1.0) * {scale}.0 + 0.5))) & {}u) << {}u",
+                                (1u64 << bits) - 1,
+                                i * bits
+                            )?;
                         }
-                    }
-                    Mf::Pack2x16snorm => {
-                        if self.options.version.supports_pack_unpack_snorm_2x16() {
-                            "packSnorm2x16"
-                        } else {
-                            return Err(Error::UnsupportedExternal("packSnorm2x16".to_owned()));
-                        }
-                    }
-                    Mf::Pack2x16unorm => {
-                        if self.options.version.supports_pack_unpack_unorm_2x16() {
-                            "packUnorm2x16"
-                        } else {
-                            return Err(Error::UnsupportedExternal("packUnorm2x16".to_owned()));
-                        }
+                        write!(self.out, ")")?;
+                        return Ok(());
                     }
                     Mf::Pack2x16float => {
                         if self.options.version.supports_pack_unpack_half_2x16() {

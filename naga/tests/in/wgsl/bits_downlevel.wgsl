@@ -13,10 +13,10 @@ fn main() {
     var f2 = vec2<f32>(0.0);
     var f4 = vec4<f32>(0.0);
     // No polyfill for these yet
-    // u = pack4x8snorm(f4);
-    // u = pack4x8unorm(f4);
-    // u = pack2x16snorm(f2);
-    // u = pack2x16unorm(f2);
+    u = pack4x8snorm(f4);
+    u = pack4x8unorm(f4);
+    u = pack2x16snorm(f2);
+    u = pack2x16unorm(f2);
     // u = pack2x16float(f2);
     u = pack4xI8(i4);
     u = pack4xU8(u4);
