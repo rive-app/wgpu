@@ -3904,9 +3904,75 @@ impl BlockContext<'_> {
                     result,
                 } => {
                     let id = self.gen_id();
-                    self.temp_list.clear();
+                    let mut argument_ids = Vec::with_capacity(arguments.len());
+                    let mut copied = Vec::new();
                     for &argument in arguments {
-                        self.temp_list.push(self.cached[argument]);
+                        let is_part = matches!(
+                            self.ir_function.expressions[argument],
+                            crate::Expression::Access { .. }
+                                | crate::Expression::AccessIndex { .. }
+                        );
+                        // SPIR-V passes only whole variables, so a pointer into
+                        // part of one passes a copy, written back after the call.
+                        let (value_type_id, space) =
+                            match *self.fun_info[argument].ty.inner_with(&self.ir_module.types) {
+                                crate::TypeInner::Pointer { base, space } if is_part => {
+                                    (self.get_handle_type_id(base), space)
+                                }
+                                crate::TypeInner::ValuePointer {
+                                    size,
+                                    scalar,
+                                    space,
+                                } if is_part => {
+                                    let numeric = match size {
+                                        Some(size) => NumericType::Vector { size, scalar },
+                                        None => NumericType::Scalar(scalar),
+                                    };
+                                    (self.get_numeric_type_id(numeric), space)
+                                }
+                                _ => {
+                                    argument_ids.push(self.cached[argument]);
+                                    continue;
+                                }
+                            };
+                        if space != crate::AddressSpace::Function {
+                            return Err(Error::FeatureNotImplemented(
+                                "pointer arguments into part of a non-function variable",
+                            ));
+                        }
+                        let ExpressionPointer::Ready { pointer_id } = self.write_access_chain(
+                            argument,
+                            &mut block,
+                            AccessTypeAdjustment::None,
+                        )?
+                        else {
+                            return Err(Error::FeatureNotImplemented(
+                                "pointer arguments under conditional bounds checks",
+                            ));
+                        };
+                        let copy_id = self.gen_id();
+                        let pointer_type_id = self
+                            .writer
+                            .get_pointer_type_id(value_type_id, spirv::StorageClass::Function);
+                        self.function.argument_copies.push(super::LocalVariable {
+                            id: copy_id,
+                            instruction: Instruction::variable(
+                                pointer_type_id,
+                                copy_id,
+                                spirv::StorageClass::Function,
+                                None,
+                            ),
+                        });
+                        let value_id = self.gen_id();
+                        block.body.push(Instruction::load(
+                            value_type_id,
+                            value_id,
+                            pointer_id,
+                            None,
+                        ));
+                        block.body.push(Instruction::store(copy_id, value_id, None));
+                        argument_ids.push(copy_id);
+                        copied.push((pointer_id, copy_id, value_type_id));
                     }
 
                     let type_id = match result {
@@ -3921,8 +3987,17 @@ impl BlockContext<'_> {
                         type_id,
                         id,
                         self.writer.lookup_function[&local_function],
-                        &self.temp_list,
+                        &argument_ids,
                     ));
+                    for (pointer_id, copy_id, value_type_id) in copied {
+                        let value_id = self.gen_id();
+                        block
+                            .body
+                            .push(Instruction::load(value_type_id, value_id, copy_id, None));
+                        block
+                            .body
+                            .push(Instruction::store(pointer_id, value_id, None));
+                    }
                 }
                 Statement::Atomic {
                     pointer,

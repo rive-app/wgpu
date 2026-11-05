@@ -50,6 +50,9 @@ impl Function {
                 for local_var in self.force_loop_bounding_vars.iter() {
                     local_var.instruction.to_words(sink);
                 }
+                for local_var in self.argument_copies.iter() {
+                    local_var.instruction.to_words(sink);
+                }
                 for internal_var in self.spilled_composites.values() {
                     internal_var.instruction.to_words(sink);
                 }

@@ -1,4 +1,4 @@
-targets = "METAL"
+targets = "METAL | SPIRV"
 
 [bounds_check_policies]
 index = "Restrict"

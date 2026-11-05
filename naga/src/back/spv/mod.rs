@@ -261,6 +261,8 @@ struct Function {
         crate::FastHashMap<Handle<crate::LocalVariable>, LocalVariable>,
     /// List of local variables used as a counters to ensure that all loops are bounded.
     force_loop_bounding_vars: Vec<LocalVariable>,
+    /// Copies of what pointer arguments into part of a variable point to.
+    argument_copies: Vec<LocalVariable>,
 
     /// A map from a Naga expression to the temporary SPIR-V variable we have
     /// spilled its value to, if any.
