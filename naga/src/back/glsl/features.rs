@@ -546,9 +546,10 @@ impl<W> Writer<'_, W> {
                         }
                     }
                 }
-                Expression::ImageSample { image, level, offset, depth_ref, .. } => {
+                Expression::ImageSample { image, level, offset, depth_ref, gather: None, .. } => {
                     // Without a compare the image samples as a plain float texture,
-                    // which never needs the shadow lod extension.
+                    // and gathers take no level, so neither needs the shadow lod
+                    // extension.
                     if let (&TypeInner::Image {
                         dim,
                         arrayed,

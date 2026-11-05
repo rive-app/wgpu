@@ -96,6 +96,10 @@ impl Version {
         *self >= Version::Desktop(400) || *self >= Version::new_gles(310)
     }
 
+    pub fn supports_texture_gather(&self) -> bool {
+        *self >= Version::Desktop(400) || *self >= Version::new_gles(310)
+    }
+
     pub fn supports_derivative_control(&self) -> bool {
         *self >= Version::Desktop(450)
     }

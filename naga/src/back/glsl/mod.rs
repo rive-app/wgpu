@@ -87,6 +87,7 @@ const CLAMPED_LOD_SUFFIX: &str = "_clamped_lod";
 
 pub(crate) const MODF_FUNCTION: &str = "naga_modf";
 pub(crate) const FREXP_FUNCTION: &str = "naga_frexp";
+pub(crate) const GATHER_FUNCTION: &str = "naga_gather";
 
 #[cfg(feature = "deserialize")]
 #[derive(serde::Deserialize)]

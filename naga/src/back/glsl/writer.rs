@@ -306,6 +306,10 @@ impl<'a, W: Write> Writer<'a, W> {
             }
         }
 
+        if !self.options.version.supports_texture_gather() {
+            self.write_gather_fallbacks()?;
+        }
+
         // Write all named constants
         let mut constants = self
             .module
@@ -2693,8 +2697,43 @@ impl<'a, W: Write> Writer<'a, W> {
                 if gather.is_some() && level != crate::SampleLevel::Zero {
                     err = Some("textureGather doesn't support LOD parameters");
                 }
+                if gather.is_some()
+                    && dim == crate::ImageDimension::Cube
+                    && !self.options.version.supports_texture_gather()
+                {
+                    err = Some("textureGather on cube textures needs GLSL ES 3.10 or GLSL 4.00");
+                }
                 if let Some(err) = err {
                     return Err(Error::Custom(String::from(err)));
+                }
+
+                if let (Some(component), false) =
+                    (gather, self.options.version.supports_texture_gather())
+                {
+                    write!(self.out, "{GATHER_FUNCTION}(")?;
+                    self.write_expr(image, ctx)?;
+                    write!(self.out, ", ")?;
+                    if let Some(layer) = array_index {
+                        write!(self.out, "vec3(")?;
+                        self.write_expr(coordinate, ctx)?;
+                        write!(self.out, ", ")?;
+                        self.write_expr(layer, ctx)?;
+                        write!(self.out, ")")?;
+                    } else {
+                        self.write_expr(coordinate, ctx)?;
+                    }
+                    write!(self.out, ", ")?;
+                    match offset {
+                        Some(constant) => self.write_const_expr(constant, ctx.expressions)?,
+                        None => write!(self.out, "ivec2(0)")?,
+                    }
+                    write!(self.out, ", ")?;
+                    match depth_ref {
+                        Some(depth_ref) => self.write_expr(depth_ref, ctx)?,
+                        None => write!(self.out, "{}", component as usize)?,
+                    }
+                    write!(self.out, ")")?;
+                    return Ok(());
                 }
 
                 // `textureLod[Offset]` on `sampler2DArrayShadow` and `samplerCubeShadow` does not exist in GLSL,
@@ -2704,6 +2743,7 @@ impl<'a, W: Write> Writer<'a, W> {
                     || (dim == crate::ImageDimension::D2 && arrayed))
                     && level == crate::SampleLevel::Zero
                     && matches!(class, crate::ImageClass::Depth { .. })
+                    && gather.is_none()
                     && !self.features.contains(Features::TEXTURE_SHADOW_LOD);
 
                 // Write the function to be used depending on the sample level
@@ -4536,6 +4576,88 @@ impl<'a, W: Write> Writer<'a, W> {
             write!(self.out, ".x")?;
         }
 
+        Ok(())
+    }
+
+    /// Writes a [`GATHER_FUNCTION`] overload for each kind of 2D texture the
+    /// module gathers from, for versions without `textureGather`. It samples
+    /// the centers of the four texels a gather reads, which keeps the
+    /// sampler's address modes and comparison, though a sampler's minimum LOD
+    /// above 0 still moves those reads to a smaller mip.
+    fn write_gather_fallbacks(&mut self) -> BackendResult {
+        let mut kinds = Vec::new();
+        let functions = self.module.functions.iter();
+        let functions = functions.map(|(handle, function)| (function, &self.info[handle]));
+        let entries = self.module.entry_points.iter().enumerate();
+        let entries = entries.map(|(k, entry)| (&entry.function, self.info.get_entry_point(k)));
+        for (function, info) in functions.chain(entries) {
+            for (_, expression) in function.expressions.iter() {
+                let crate::Expression::ImageSample {
+                    image,
+                    gather: Some(_),
+                    depth_ref,
+                    ..
+                } = *expression
+                else {
+                    continue;
+                };
+                let TypeInner::Image {
+                    dim: crate::ImageDimension::D2,
+                    arrayed,
+                    class,
+                } = *info[image].ty.inner_with(&self.module.types)
+                else {
+                    continue;
+                };
+                let kind = match class {
+                    crate::ImageClass::Sampled { kind, .. } => kind,
+                    _ => crate::ScalarKind::Float,
+                };
+                let key = (arrayed, depth_ref.is_some(), kind);
+                if !kinds.contains(&key) {
+                    kinds.push(key);
+                }
+            }
+        }
+        for (arrayed, compare, kind) in kinds {
+            let prefix = match kind {
+                crate::ScalarKind::Sint => "i",
+                crate::ScalarKind::Uint => "u",
+                _ => "",
+            };
+            let (array, uv) = match arrayed {
+                true => ("Array", "vec3"),
+                false => ("", "vec2"),
+            };
+            let (shadow, last) = match compare {
+                true => ("Shadow", "float depth_ref"),
+                false => ("", "int component"),
+            };
+            let texels = [(0, 1), (1, 1), (1, 0), (0, 0)].map(|(x, y)| {
+                let texel = format!("(base + vec2({x}, {y})) / size");
+                match (compare, arrayed) {
+                    (false, false) => format!("textureLod(t, {texel}, 0.0)[component]"),
+                    (false, true) => {
+                        format!("textureLod(t, vec3({texel}, uv.z), 0.0)[component]")
+                    }
+                    (true, false) => format!("textureLod(t, vec3({texel}, depth_ref), 0.0)"),
+                    // GLSL ES has no `textureLod` on array shadow samplers.
+                    (true, true) => format!(
+                        "textureGrad(t, vec4({texel}, uv.z, depth_ref), vec2(0.0), vec2(0.0))"
+                    ),
+                }
+            });
+            writeln!(
+                self.out,
+                "{prefix}vec4 {GATHER_FUNCTION}(highp {prefix}sampler2D{array}{shadow} t, {uv} uv, ivec2 offset, {last}) {{
+    vec2 size = vec2(textureSize(t, 0).xy);
+    vec2 base = floor(uv.xy * size - 0.5) + vec2(offset) + 0.5;
+    return {prefix}vec4({});
+}}
+",
+                texels.join(", ")
+            )?;
+        }
         Ok(())
     }
 
