@@ -32,17 +32,15 @@ OpDecorate %5 ArrayStride 16
 %17 = OpVariable  %18  Function %15
 %19 = OpVariable  %20  Function %16
 %21 = OpVariable  %20  Function %16
-%29 = OpVariable  %28  Function
+%29 = OpVariable  %28  Function %13
 OpBranch %22
 %22 = OpLabel
 %25 = OpAccessChain  %23  %17 %24
 %26 = OpLoad  %4  %25
 %27 = OpLoad  %9  %21
-OpStore %29 %13
 %31 = OpAccessChain  %23  %29 %27 %30
 %32 = OpLoad  %4  %31
 %33 = OpLoad  %9  %19
-OpStore %29 %13
 %34 = OpAccessChain  %23  %29 %33 %6
 %35 = OpLoad  %4  %34
 %36 = OpFMul  %4  %32 %35

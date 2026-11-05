@@ -2041,7 +2041,7 @@ impl BlockContext<'_> {
                     // Adreno reads a loaded struct or array from its variable
                     // again where the value is used, after any later store to
                     // it, so the value is kept in a variable of its own.
-                    let spill_id = self.spill_variable(expr_handle);
+                    let spill_id = self.spill_variable(expr_handle, None);
                     block.body.push(Instruction::store(spill_id, id, None));
                     self.function.spilled_accesses.insert(expr_handle);
                     let reloaded_id = self.gen_id();
@@ -2999,8 +2999,9 @@ impl BlockContext<'_> {
             )
     }
 
-    /// The internal variable `base` spills to, made the first time.
-    fn spill_variable(&mut self, base: Handle<crate::Expression>) -> Word {
+    /// The internal variable `base` spills to, made the first time, with
+    /// `init` as its initializer.
+    fn spill_variable(&mut self, base: Handle<crate::Expression>, init: Option<Word>) -> Word {
         use indexmap::map::Entry;
 
         match self.function.spilled_composites.entry(base) {
@@ -3019,7 +3020,7 @@ impl BlockContext<'_> {
                         pointer_type_id,
                         id,
                         spirv::StorageClass::Function,
-                        None,
+                        init,
                     ),
                 });
                 id
@@ -3028,7 +3029,13 @@ impl BlockContext<'_> {
     }
 
     fn spill_to_internal_variable(&mut self, base: Handle<crate::Expression>, block: &mut Block) {
-        let spill_variable_id = self.spill_variable(base);
+        // Mali keeps an array stored more than once in thread storage, which
+        // a constant's initializer avoids.
+        if self.expression_constness.is_const(base) {
+            self.spill_variable(base, Some(self.cached[base]));
+            return;
+        }
+        let spill_variable_id = self.spill_variable(base, None);
 
         // Perform the store even if we already had a spill variable for `base`.
         // Consider this code:

@@ -216,10 +216,9 @@ OpFunctionEnd
 %161 = OpVariable  %43  Function %162
 %156 = OpVariable  %157  Function %97
 %159 = OpVariable  %43  Function %160
-%165 = OpVariable  %164  Function
+%165 = OpVariable  %164  Function %154
 OpBranch %163
 %163 = OpLabel
-OpStore %165 %154
 %166 = OpAccessChain  %43  %165 %147
 %167 = OpLoad  %4  %166
 OpStore %159 %167

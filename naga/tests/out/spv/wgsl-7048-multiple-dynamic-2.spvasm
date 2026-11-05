@@ -30,15 +30,13 @@ OpDecorate %11 Location 0
 %13 = OpFunction  %2  None %14
 %10 = OpLabel
 %19 = OpVariable  %20  Function %18
-%24 = OpVariable  %23  Function
+%24 = OpVariable  %23  Function %17
 OpBranch %21
 %21 = OpLabel
 %22 = OpLoad  %9  %19
-OpStore %24 %17
 %26 = OpAccessChain  %25  %24 %22
 %27 = OpLoad  %5  %26
 %28 = OpLoad  %9  %19
-OpStore %24 %17
 %29 = OpAccessChain  %25  %24 %28
 %30 = OpLoad  %5  %29
 %31 = OpFMul  %5  %27 %30
