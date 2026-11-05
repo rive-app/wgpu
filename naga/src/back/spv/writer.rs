@@ -101,6 +101,7 @@ impl Writer {
             tuple_of_u32s_ty_id: None,
             lookup_type: crate::FastHashMap::default(),
             lookup_function: crate::FastHashMap::default(),
+            private_copies: crate::FastHashMap::default(),
             lookup_function_type: crate::FastHashMap::default(),
             wrapped_functions: crate::FastHashMap::default(),
             constant_ids: HandleVec::new(),
@@ -200,6 +201,7 @@ impl Writer {
             annotations: take(&mut self.annotations).reclaim(),
             lookup_type: take(&mut self.lookup_type).reclaim(),
             lookup_function: take(&mut self.lookup_function).reclaim(),
+            private_copies: take(&mut self.private_copies).reclaim(),
             lookup_function_type: take(&mut self.lookup_function_type).reclaim(),
             wrapped_functions: take(&mut self.wrapped_functions).reclaim(),
             constant_ids: take(&mut self.constant_ids).reclaim(),
@@ -1596,29 +1598,31 @@ impl Writer {
             .function
             .consume(prelude, Instruction::branch(next_id));
 
-        let workgroup_vars_init_exit_block_id =
-            match (context.writer.zero_initialize_workgroup_memory, interface) {
-                (
-                    super::ZeroInitializeWorkgroupMemoryMode::Polyfill,
-                    Some(
-                        ref mut interface @ FunctionInterface {
-                            stage:
-                                crate::ShaderStage::Compute
-                                | crate::ShaderStage::Mesh
-                                | crate::ShaderStage::Task,
-                            ..
-                        },
-                    ),
-                ) => context.writer.generate_workgroup_vars_init_block(
-                    next_id,
-                    ir_module,
-                    info,
-                    local_invocation_index_id,
-                    interface,
-                    context.function,
+        let workgroup_vars_init_exit_block_id = match (
+            context.writer.zero_initialize_workgroup_memory,
+            interface.as_mut(),
+        ) {
+            (
+                super::ZeroInitializeWorkgroupMemoryMode::Polyfill,
+                Some(
+                    interface @ &mut FunctionInterface {
+                        stage:
+                            crate::ShaderStage::Compute
+                            | crate::ShaderStage::Mesh
+                            | crate::ShaderStage::Task,
+                        ..
+                    },
                 ),
-                _ => None,
-            };
+            ) => context.writer.generate_workgroup_vars_init_block(
+                next_id,
+                ir_module,
+                info,
+                local_invocation_index_id,
+                interface,
+                context.function,
+            ),
+            _ => None,
+        };
 
         let main_id = if let Some(exit_id) = workgroup_vars_init_exit_block_id {
             exit_id
@@ -1637,6 +1641,15 @@ impl Writer {
         self.temp_list = temp_list;
 
         function.to_words(&mut self.logical_layout.function_definitions);
+
+        if let Some(interface) = interface {
+            if self.physical_layout.version >= 0x10400 {
+                interface.varying_ids.extend(function.private_copies);
+            }
+        } else {
+            self.private_copies
+                .insert(function_id, function.private_copies);
+        }
 
         if let Some(EntryPointContext {
             mesh_state: Some(ref mesh_state),

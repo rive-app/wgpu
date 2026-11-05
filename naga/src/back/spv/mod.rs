@@ -263,6 +263,9 @@ struct Function {
     force_loop_bounding_vars: Vec<LocalVariable>,
     /// Copies of what pointer arguments into part of a variable point to.
     argument_copies: Vec<LocalVariable>,
+    /// The module scope copies this function's calls pass pointer arguments
+    /// into part of a private variable through, its callees' included.
+    private_copies: crate::FastIndexSet<Word>,
 
     /// A map from a Naga expression to the temporary SPIR-V variable we have
     /// spilled its value to, if any.
@@ -950,6 +953,8 @@ pub struct Writer {
     //TODO: convert most of these into vectors, addressable by handle indices
     lookup_type: crate::FastHashMap<LookupType, Word>,
     lookup_function: crate::FastHashMap<Handle<crate::Function>, Word>,
+    /// Each written function's [`Function::private_copies`], by its id.
+    private_copies: crate::FastHashMap<Word, crate::FastIndexSet<Word>>,
     lookup_function_type: crate::FastHashMap<LookupFunctionType, Word>,
     /// Operations which have been wrapped in a helper function. The value is
     /// the ID of the function, which should be called instead of emitting code

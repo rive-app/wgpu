@@ -3986,11 +3986,15 @@ impl BlockContext<'_> {
                                     continue;
                                 }
                             };
-                        if space != crate::AddressSpace::Function {
-                            return Err(Error::FeatureNotImplemented(
-                                "pointer arguments into part of a non-function variable",
-                            ));
-                        }
+                        let class = match space {
+                            crate::AddressSpace::Function => spirv::StorageClass::Function,
+                            crate::AddressSpace::Private => spirv::StorageClass::Private,
+                            _ => {
+                                return Err(Error::FeatureNotImplemented(
+                                    "pointer arguments into part of a variable outside the function and private spaces",
+                                ))
+                            }
+                        };
                         let ExpressionPointer::Ready { pointer_id } = self.write_access_chain(
                             argument,
                             &mut block,
@@ -4002,18 +4006,18 @@ impl BlockContext<'_> {
                             ));
                         };
                         let copy_id = self.gen_id();
-                        let pointer_type_id = self
-                            .writer
-                            .get_pointer_type_id(value_type_id, spirv::StorageClass::Function);
-                        self.function.argument_copies.push(super::LocalVariable {
-                            id: copy_id,
-                            instruction: Instruction::variable(
-                                pointer_type_id,
-                                copy_id,
-                                spirv::StorageClass::Function,
-                                None,
-                            ),
-                        });
+                        let pointer_type_id = self.writer.get_pointer_type_id(value_type_id, class);
+                        let instruction =
+                            Instruction::variable(pointer_type_id, copy_id, class, None);
+                        if class == spirv::StorageClass::Private {
+                            instruction.to_words(&mut self.writer.logical_layout.declarations);
+                            self.function.private_copies.insert(copy_id);
+                        } else {
+                            self.function.argument_copies.push(super::LocalVariable {
+                                id: copy_id,
+                                instruction,
+                            });
+                        }
                         let value_id = self.gen_id();
                         block.body.push(Instruction::load(
                             value_type_id,
@@ -4034,10 +4038,14 @@ impl BlockContext<'_> {
                         None => self.writer.void_type,
                     };
 
+                    let function_id = self.writer.lookup_function[&local_function];
+                    if let Some(copies) = self.writer.private_copies.get(&function_id) {
+                        self.function.private_copies.extend(copies);
+                    }
                     block.body.push(Instruction::function_call(
                         type_id,
                         id,
-                        self.writer.lookup_function[&local_function],
+                        function_id,
                         &argument_ids,
                     ));
                     for (pointer_id, copy_id, value_type_id) in copied {
