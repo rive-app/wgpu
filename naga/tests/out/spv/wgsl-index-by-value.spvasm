@@ -24,7 +24,7 @@ OpDecorate %77 BuiltIn Position
 %11 = OpTypeMatrix %12 2
 %13 = OpTypeVector %10 4
 %18 = OpTypeFunction %3 %4 %3
-%20 = OpTypePointer Function %4
+%19 = OpTypePointer Function %4
 %22 = OpTypePointer Function %3
 %29 = OpTypeFunction %3 %3 %3
 %30 = OpConstant  %3  1
@@ -59,11 +59,11 @@ OpDecorate %77 BuiltIn Position
 %15 = OpFunctionParameter  %4
 %16 = OpFunctionParameter  %3
 %14 = OpLabel
-%21 = OpVariable  %20  Function
-OpBranch %19
-%19 = OpLabel
-OpStore %21 %15
-%23 = OpAccessChain  %22  %21 %16
+%20 = OpVariable  %19  Function
+OpStore %20 %15
+OpBranch %21
+%21 = OpLabel
+%23 = OpAccessChain  %22  %20 %16
 %24 = OpLoad  %3  %23
 OpReturnValue %24
 OpFunctionEnd
@@ -92,7 +92,7 @@ OpFunctionEnd
 %62 = OpFunction  %13  None %63
 %61 = OpFunctionParameter  %6
 %60 = OpLabel
-%67 = OpVariable  %20  Function %65
+%67 = OpVariable  %19  Function %65
 OpBranch %66
 %66 = OpLabel
 %68 = OpAccessChain  %22  %67 %61

@@ -3028,11 +3028,56 @@ impl BlockContext<'_> {
         }
     }
 
+    /// Marks the values a dynamic index will spill, so each is stored into its
+    /// spill variable once where it is computed rather than before every
+    /// index, as Mali keeps every such store in thread storage.
+    pub(super) fn find_spills(&mut self) {
+        for (_, expression) in self.ir_function.expressions.iter() {
+            let crate::Expression::Access { base, index } = *expression else {
+                continue;
+            };
+            let value = matches!(
+                *self.fun_info[base].ty.inner_with(&self.ir_module.types),
+                crate::TypeInner::Array { .. } | crate::TypeInner::Matrix { .. }
+            );
+            // An element of a spilled value is indexed through its variable.
+            let element = matches!(
+                self.ir_function.expressions[base],
+                crate::Expression::Access { .. } | crate::Expression::AccessIndex { .. }
+            );
+            let dynamic = matches!(
+                GuardedIndex::from_expression(index, &self.ir_function.expressions, self.ir_module),
+                GuardedIndex::Expression(_)
+            );
+            if value && dynamic && !element && !self.expression_constness.is_const(base) {
+                self.function.spill_where_computed.insert(base);
+            }
+        }
+    }
+
+    /// Stores `expr`, just computed, into its spill variable when a dynamic
+    /// index spills it and no earlier spill holds it.
+    pub(super) fn store_spill(&mut self, expr: Handle<crate::Expression>, block: &mut Block) {
+        if !self.function.spill_where_computed.contains(&expr)
+            || self.function.spilled_accesses.contains(expr)
+        {
+            return;
+        }
+        let spill_id = self.spill_variable(expr, None);
+        block
+            .body
+            .push(Instruction::store(spill_id, self.cached[expr], None));
+        self.function.stored_where_computed.insert(expr);
+    }
+
     fn spill_to_internal_variable(&mut self, base: Handle<crate::Expression>, block: &mut Block) {
         // Mali keeps an array stored more than once in thread storage, which
         // a constant's initializer avoids.
         if self.expression_constness.is_const(base) {
             self.spill_variable(base, Some(self.cached[base]));
+            return;
+        }
+        if self.function.stored_where_computed.contains(&base) {
             return;
         }
         let spill_variable_id = self.spill_variable(base, None);
@@ -3594,6 +3639,7 @@ impl BlockContext<'_> {
                         // omit const expressions as we've already cached those
                         if !self.expression_constness.is_const(handle) {
                             self.cache_expression_value(handle, &mut block)?;
+                            self.store_spill(handle, &mut block);
                         }
                     }
                 }
@@ -4063,6 +4109,9 @@ impl BlockContext<'_> {
                         block
                             .body
                             .push(Instruction::store(pointer_id, value_id, None));
+                    }
+                    if let Some(expr) = result {
+                        self.store_spill(expr, &mut block);
                     }
                 }
                 Statement::Atomic {

@@ -5,8 +5,8 @@ const int _65[5] = int[](1, 2, 3, 4, 5);
 
 int _17(int _15[5], int _16)
 {
-    int _21[5] = _15;
-    return _21[_16];
+    int _20[5] = _15;
+    return _20[_16];
 }
 
 int _28(int _26, int _27)

@@ -289,6 +289,11 @@ struct Function {
     /// [`spilled_composites`]: Function::spilled_composites
     spilled_accesses: crate::arena::HandleSet<crate::Expression>,
 
+    /// The values a dynamic index spills, to store into their spill variable
+    /// once where they are computed, and those stored there so far.
+    spill_where_computed: crate::FastHashSet<Handle<crate::Expression>>,
+    stored_where_computed: crate::FastHashSet<Handle<crate::Expression>>,
+
     /// A map taking each expression to the number of [`Access`] and
     /// [`AccessIndex`] expressions that uses it as a base value. If an
     /// expression has no entry, its count is zero: it is never used as a

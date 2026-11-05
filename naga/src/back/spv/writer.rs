@@ -1483,11 +1483,13 @@ impl Writer {
 
         // fill up the pre-emitted and const expressions
         context.cached.reset(ir_function.expressions.len());
+        context.find_spills();
         for (handle, expr) in ir_function.expressions.iter() {
             if (expr.needs_pre_emit() && !matches!(*expr, crate::Expression::LocalVariable(_)))
                 || context.expression_constness.is_const(handle)
             {
                 context.cache_expression_value(handle, &mut prelude)?;
+                context.store_spill(handle, &mut prelude);
             }
         }
 
