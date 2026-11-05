@@ -2029,7 +2029,32 @@ impl BlockContext<'_> {
                 self.function.variables[&variable].id
             }
             crate::Expression::Load { pointer } => {
-                self.write_checked_load(pointer, block, AccessTypeAdjustment::None, result_type_id)?
+                let id = self.write_checked_load(
+                    pointer,
+                    block,
+                    AccessTypeAdjustment::None,
+                    result_type_id,
+                )?;
+                if self.loads_aggregate(pointer, expr_handle)
+                    && written_after(self.ir_function, pointer, expr_handle)
+                {
+                    // Adreno reads a loaded struct or array from its variable
+                    // again where the value is used, after any later store to
+                    // it, so the value is kept in a variable of its own.
+                    let spill_id = self.spill_variable(expr_handle);
+                    block.body.push(Instruction::store(spill_id, id, None));
+                    self.function.spilled_accesses.insert(expr_handle);
+                    let reloaded_id = self.gen_id();
+                    block.body.push(Instruction::load(
+                        result_type_id,
+                        reloaded_id,
+                        spill_id,
+                        None,
+                    ));
+                    reloaded_id
+                } else {
+                    id
+                }
             }
             crate::Expression::FunctionArgument(index) => self.function.parameter_id(index),
             crate::Expression::CallResult(_)
@@ -2952,11 +2977,33 @@ impl BlockContext<'_> {
         }
     }
 
-    fn spill_to_internal_variable(&mut self, base: Handle<crate::Expression>, block: &mut Block) {
+    /// Whether `load` reads a whole struct or array through `pointer` from a
+    /// function or private variable.
+    fn loads_aggregate(
+        &self,
+        pointer: Handle<crate::Expression>,
+        load: Handle<crate::Expression>,
+    ) -> bool {
+        let types = &self.ir_module.types;
+        let from_variable = matches!(
+            *self.fun_info[pointer].ty.inner_with(types),
+            crate::TypeInner::Pointer {
+                space: crate::AddressSpace::Function | crate::AddressSpace::Private,
+                ..
+            }
+        );
+        from_variable
+            && matches!(
+                *self.fun_info[load].ty.inner_with(types),
+                crate::TypeInner::Struct { .. } | crate::TypeInner::Array { .. }
+            )
+    }
+
+    /// The internal variable `base` spills to, made the first time.
+    fn spill_variable(&mut self, base: Handle<crate::Expression>) -> Word {
         use indexmap::map::Entry;
 
-        // Make sure we have an internal variable to spill `base` to.
-        let spill_variable_id = match self.function.spilled_composites.entry(base) {
+        match self.function.spilled_composites.entry(base) {
             Entry::Occupied(preexisting) => preexisting.get().id,
             Entry::Vacant(vacant) => {
                 // Generate a new internal variable of the appropriate
@@ -2977,7 +3024,11 @@ impl BlockContext<'_> {
                 });
                 id
             }
-        };
+        }
+    }
+
+    fn spill_to_internal_variable(&mut self, base: Handle<crate::Expression>, block: &mut Block) {
+        let spill_variable_id = self.spill_variable(base);
 
         // Perform the store even if we already had a spill variable for `base`.
         // Consider this code:
@@ -4375,4 +4426,92 @@ impl BlockContext<'_> {
 
         Ok(())
     }
+}
+
+/// The variable a chain of accesses from `pointer` starts at.
+#[derive(Clone, Copy, PartialEq)]
+enum Root {
+    Local(Handle<crate::LocalVariable>),
+    Global(Handle<crate::GlobalVariable>),
+    Argument(u32),
+}
+
+fn root_of(function: &crate::Function, mut pointer: Handle<crate::Expression>) -> Option<Root> {
+    loop {
+        match function.expressions[pointer] {
+            crate::Expression::Access { base, .. }
+            | crate::Expression::AccessIndex { base, .. } => {
+                pointer = base;
+            }
+            crate::Expression::LocalVariable(local) => return Some(Root::Local(local)),
+            crate::Expression::GlobalVariable(global) => return Some(Root::Global(global)),
+            crate::Expression::FunctionArgument(index) => return Some(Root::Argument(index)),
+            _ => return None,
+        }
+    }
+}
+
+/// Whether `function` may write the variable `pointer` reads from after
+/// `load` reads it, through a store, a pointer it passes, or for a global any
+/// call.
+fn written_after(
+    function: &crate::Function,
+    pointer: Handle<crate::Expression>,
+    load: Handle<crate::Expression>,
+) -> bool {
+    let Some(root) = root_of(function, pointer) else {
+        return true;
+    };
+    writes_after(function, &function.body, root, load, &mut false)
+}
+
+fn writes_after(
+    function: &crate::Function,
+    block: &crate::Block,
+    root: Root,
+    load: Handle<crate::Expression>,
+    after: &mut bool,
+) -> bool {
+    use crate::Statement;
+    for statement in block.iter() {
+        let writes = match *statement {
+            Statement::Emit(ref range) => {
+                *after |= range.clone().any(|handle| handle == load);
+                false
+            }
+            Statement::Store { pointer, .. } => *after && root_of(function, pointer) == Some(root),
+            Statement::Call { ref arguments, .. } => {
+                *after
+                    && (matches!(root, Root::Global(_))
+                        || arguments
+                            .iter()
+                            .any(|&argument| root_of(function, argument) == Some(root)))
+            }
+            Statement::Block(ref inner) => writes_after(function, inner, root, load, after),
+            Statement::If {
+                ref accept,
+                ref reject,
+                ..
+            } => {
+                writes_after(function, accept, root, load, after)
+                    || writes_after(function, reject, root, load, after)
+            }
+            Statement::Switch { ref cases, .. } => cases
+                .iter()
+                .any(|case| writes_after(function, &case.body, root, load, after)),
+            Statement::Loop {
+                ref body,
+                ref continuing,
+                ..
+            } => {
+                writes_after(function, body, root, load, after)
+                    || writes_after(function, continuing, root, load, after)
+            }
+            _ => false,
+        };
+        if writes {
+            return true;
+        }
+    }
+    false
 }
