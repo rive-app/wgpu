@@ -665,11 +665,15 @@ impl<W: Write> Writer<W> {
         write!(self.out, "struct {}", self.names[&NameKey::Type(handle)])?;
         write!(self.out, " {{")?;
         writeln!(self.out)?;
+        let sizes = layout_sizes(module, handle, members);
         for (index, member) in members.iter().enumerate() {
             // The indentation is only for readability
             write!(self.out, "{}", back::INDENT)?;
             if let Some(ref binding) = member.binding {
                 self.write_attributes(&map_binding_to_attribute(binding))?;
+            }
+            if let Some(size) = sizes[index] {
+                write!(self.out, "@size({size}) ")?;
             }
             // Write struct member name and type
             let member_name = &self.names[&NameKey::StructMember(handle, index as u32)];
@@ -2138,6 +2142,47 @@ impl TypeContext for WriterTypeContext<'_> {
     fn write_non_wgsl_scalar<W: Write>(&self, _: crate::Scalar, _: &mut W) -> core::fmt::Result {
         unreachable!("backends should only be passed validated modules");
     }
+}
+
+/// The `@size` each member of `handle` needs for WGSL, which lays members out
+/// from their types alone, to keep every offset and the span.
+fn layout_sizes(
+    module: &Module,
+    handle: Handle<crate::Type>,
+    members: &[crate::StructMember],
+) -> Vec<Option<u32>> {
+    let TypeInner::Struct { span, .. } = module.types[handle].inner else {
+        return vec![None; members.len()];
+    };
+    let mut layouter = proc::Layouter::default();
+    if layouter.update(module.to_ctx()).is_err() {
+        return vec![None; members.len()];
+    }
+    let alignment = members.iter().fold(proc::Alignment::ONE, |most, member| {
+        most.max(layouter[member.ty].alignment)
+    });
+    members
+        .iter()
+        .enumerate()
+        .map(|(index, member)| {
+            // WGSL gives a runtime sized array no `@size`.
+            if let TypeInner::Array {
+                size: crate::ArraySize::Dynamic | crate::ArraySize::Pending(_),
+                ..
+            } = module.types[member.ty].inner
+            {
+                return None;
+            }
+            let end = member.offset + layouter[member.ty].size;
+            let (next, placed) = match members.get(index + 1) {
+                Some(next) => (next.offset, layouter[next.ty].alignment.round_up(end)),
+                None => (span, alignment.round_up(end)),
+            };
+            // An offset WGSL would place later, as packed entry point IO
+            // gets, has no attribute to keep it.
+            (next > placed).then_some(next - member.offset)
+        })
+        .collect()
 }
 
 fn map_binding_to_attribute(binding: &crate::Binding) -> Vec<Attribute> {

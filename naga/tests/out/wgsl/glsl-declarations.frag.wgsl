@@ -14,9 +14,9 @@ struct TestStruct {
 }
 
 struct LightScatteringParams {
-    BetaRay: f32,
+    @size(16) BetaRay: f32,
     BetaMie: array<f32, 3>,
-    HGg: f32,
+    @size(16) HGg: f32,
     DistanceMul: array<f32, 4>,
     BlendCoeff: f32,
     SunDirection: vec3<f32>,

@@ -5,7 +5,7 @@ struct GlobalConst {
 }
 
 struct AlignedWrapper {
-    value: i32,
+    @size(8) value: i32,
 }
 
 struct Bar {
