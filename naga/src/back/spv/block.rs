@@ -2035,9 +2035,12 @@ impl BlockContext<'_> {
                     AccessTypeAdjustment::None,
                     result_type_id,
                 )?;
-                if self.loads_aggregate(pointer, expr_handle)
-                    && written_after(self.ir_function, pointer, expr_handle)
-                {
+                if crate::back::rereads::reread_after_write(
+                    self.ir_module,
+                    self.ir_function,
+                    self.fun_info,
+                    expr_handle,
+                ) {
                     // Adreno reads a loaded struct or array from its variable
                     // again where the value is used, after any later store to
                     // it, so the value is kept in a variable of its own.
@@ -2976,28 +2979,6 @@ impl BlockContext<'_> {
                 None => Ok(load_id),
             }
         }
-    }
-
-    /// Whether `load` reads a whole struct or array through `pointer` from a
-    /// function or private variable.
-    fn loads_aggregate(
-        &self,
-        pointer: Handle<crate::Expression>,
-        load: Handle<crate::Expression>,
-    ) -> bool {
-        let types = &self.ir_module.types;
-        let from_variable = matches!(
-            *self.fun_info[pointer].ty.inner_with(types),
-            crate::TypeInner::Pointer {
-                space: crate::AddressSpace::Function | crate::AddressSpace::Private,
-                ..
-            }
-        );
-        from_variable
-            && matches!(
-                *self.fun_info[load].ty.inner_with(types),
-                crate::TypeInner::Struct { .. } | crate::TypeInner::Array { .. }
-            )
     }
 
     /// The internal variable `base` spills to, made the first time, with
@@ -4570,92 +4551,4 @@ impl BlockContext<'_> {
 
         Ok(())
     }
-}
-
-/// The variable a chain of accesses from `pointer` starts at.
-#[derive(Clone, Copy, PartialEq)]
-enum Root {
-    Local(Handle<crate::LocalVariable>),
-    Global(Handle<crate::GlobalVariable>),
-    Argument(u32),
-}
-
-fn root_of(function: &crate::Function, mut pointer: Handle<crate::Expression>) -> Option<Root> {
-    loop {
-        match function.expressions[pointer] {
-            crate::Expression::Access { base, .. }
-            | crate::Expression::AccessIndex { base, .. } => {
-                pointer = base;
-            }
-            crate::Expression::LocalVariable(local) => return Some(Root::Local(local)),
-            crate::Expression::GlobalVariable(global) => return Some(Root::Global(global)),
-            crate::Expression::FunctionArgument(index) => return Some(Root::Argument(index)),
-            _ => return None,
-        }
-    }
-}
-
-/// Whether `function` may write the variable `pointer` reads from after
-/// `load` reads it, through a store, a pointer it passes, or for a global any
-/// call.
-fn written_after(
-    function: &crate::Function,
-    pointer: Handle<crate::Expression>,
-    load: Handle<crate::Expression>,
-) -> bool {
-    let Some(root) = root_of(function, pointer) else {
-        return true;
-    };
-    writes_after(function, &function.body, root, load, &mut false)
-}
-
-fn writes_after(
-    function: &crate::Function,
-    block: &crate::Block,
-    root: Root,
-    load: Handle<crate::Expression>,
-    after: &mut bool,
-) -> bool {
-    use crate::Statement;
-    for statement in block.iter() {
-        let writes = match *statement {
-            Statement::Emit(ref range) => {
-                *after |= range.clone().any(|handle| handle == load);
-                false
-            }
-            Statement::Store { pointer, .. } => *after && root_of(function, pointer) == Some(root),
-            Statement::Call { ref arguments, .. } => {
-                *after
-                    && (matches!(root, Root::Global(_))
-                        || arguments
-                            .iter()
-                            .any(|&argument| root_of(function, argument) == Some(root)))
-            }
-            Statement::Block(ref inner) => writes_after(function, inner, root, load, after),
-            Statement::If {
-                ref accept,
-                ref reject,
-                ..
-            } => {
-                writes_after(function, accept, root, load, after)
-                    || writes_after(function, reject, root, load, after)
-            }
-            Statement::Switch { ref cases, .. } => cases
-                .iter()
-                .any(|case| writes_after(function, &case.body, root, load, after)),
-            Statement::Loop {
-                ref body,
-                ref continuing,
-                ..
-            } => {
-                writes_after(function, body, root, load, after)
-                    || writes_after(function, continuing, root, load, after)
-            }
-            _ => false,
-        };
-        if writes {
-            return true;
-        }
-    }
-    false
 }

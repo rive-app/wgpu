@@ -31,6 +31,8 @@ pub mod pipeline_constants;
 mod continue_forward;
 #[cfg(any(glsl_out, hlsl_out, msl_out))]
 mod continuing;
+#[cfg(any(spv_out, wgsl_out))]
+pub(crate) mod rereads;
 
 pub use nt::TaskDispatchLimits;
 

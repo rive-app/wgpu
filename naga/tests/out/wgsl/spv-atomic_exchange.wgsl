@@ -29,7 +29,7 @@ fn function_() {
     phi_26_ = type_2(0u, _e10);
     phi_29_ = 0u;
     loop {
-        let _e13 = phi_26_;
+        var _e13 = phi_26_;
         let _e15 = phi_29_;
         if (_e13.member < _e13.member_1) {
             phi_43_ = type_2((_e13.member + 1u), _e13.member_1);

@@ -86,6 +86,9 @@ pub struct Writer<W> {
     namer: proc::Namer,
     named_expressions: crate::NamedExpressions,
     required_polyfills: crate::FastIndexSet<InversePolyfill>,
+    /// The loads of the function being written that get a copy of their own,
+    /// as `back::rereads` says.
+    copied_loads: crate::FastHashSet<Handle<crate::Expression>>,
 }
 
 impl<W: Write> Writer<W> {
@@ -97,6 +100,7 @@ impl<W: Write> Writer<W> {
             namer: proc::Namer::default(),
             named_expressions: crate::NamedExpressions::default(),
             required_polyfills: crate::FastIndexSet::default(),
+            copied_loads: crate::FastHashSet::default(),
         }
     }
 
@@ -113,6 +117,7 @@ impl<W: Write> Writer<W> {
         );
         self.named_expressions.clear();
         self.required_polyfills.clear();
+        self.copied_loads.clear();
     }
 
     /// Determine if `ty` is the Naga IR presentation of a WGSL builtin type.
@@ -566,6 +571,13 @@ impl<W: Write> Writer<W> {
             writeln!(self.out)?;
         }
 
+        self.copied_loads = func
+            .expressions
+            .iter()
+            .map(|(handle, _)| handle)
+            .filter(|&load| back::rereads::reread_after_write(module, func, func_ctx.info, load))
+            .collect();
+
         // Write the function body (statement list)
         for sta in func.body.iter() {
             // The indentation should always be 1 when writing the function body
@@ -575,6 +587,7 @@ impl<W: Write> Writer<W> {
         writeln!(self.out, "}}")?;
 
         self.named_expressions.clear();
+        self.copied_loads.clear();
 
         Ok(())
     }
@@ -760,7 +773,11 @@ impl<W: Write> Writer<W> {
 
                     if let Some(name) = expr_name {
                         write!(self.out, "{level}")?;
-                        self.start_named_expr(module, handle, func_ctx, &name)?;
+                        if self.copied_loads.contains(&handle) {
+                            write!(self.out, "var {name} = ")?;
+                        } else {
+                            self.start_named_expr(module, handle, func_ctx, &name)?;
+                        }
                         self.write_expr(module, handle, func_ctx)?;
                         self.named_expressions.insert(handle, name);
                         writeln!(self.out, ";")?;

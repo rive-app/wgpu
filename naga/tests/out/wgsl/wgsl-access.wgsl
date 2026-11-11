@@ -230,7 +230,7 @@ fn foo_vert(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
 
     let baz_1 = foo;
     foo = 1f;
-    let phony = msl_padding_global_const;
+    var phony = msl_padding_global_const;
     test_matrix_within_struct_accesses();
     test_matrix_within_array_within_struct_accesses();
     let _matrix = bar._matrix;

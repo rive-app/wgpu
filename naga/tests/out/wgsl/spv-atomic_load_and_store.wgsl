@@ -26,7 +26,7 @@ fn function_() {
     let _e10 = global_1.member;
     phi_25_ = type_2(0u, _e10);
     loop {
-        let _e13 = phi_25_;
+        var _e13 = phi_25_;
         if (_e13.member < _e13.member_1) {
             phi_40_ = type_2((_e13.member + 1u), _e13.member_1);
             phi_41_ = type_2(1u, _e13.member);
