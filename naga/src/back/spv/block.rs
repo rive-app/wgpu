@@ -2626,7 +2626,8 @@ impl BlockContext<'_> {
         let root_id = loop {
             // If `expr_handle` was spilled, then the temporary variable has exactly
             // the value we want to start from.
-            if let Some(spilled) = self.function.spilled_composites.get(&expr_handle) {
+            let spilled = self.spilled_as(expr_handle);
+            if let Some(spilled) = self.function.spilled_composites.get(&spilled) {
                 // The root id of the `OpAccessChain` instruction is the temporary
                 // variable we spilled the composite to.
                 break spilled.id;
@@ -3032,6 +3033,7 @@ impl BlockContext<'_> {
     /// spill variable once where it is computed rather than before every
     /// index, as Mali keeps every such store in thread storage.
     pub(super) fn find_spills(&mut self) {
+        let mut first_of_member = crate::FastHashMap::default();
         for (_, expression) in self.ir_function.expressions.iter() {
             let crate::Expression::Access { base, index } = *expression else {
                 continue;
@@ -3040,34 +3042,111 @@ impl BlockContext<'_> {
                 *self.fun_info[base].ty.inner_with(&self.ir_module.types),
                 crate::TypeInner::Array { .. } | crate::TypeInner::Matrix { .. }
             );
+            if !value || self.is_known(index) || self.expression_constness.is_const(base) {
+                continue;
+            }
             // An element of a spilled value is indexed through its variable.
-            let element = matches!(
-                self.ir_function.expressions[base],
-                crate::Expression::Access { .. } | crate::Expression::AccessIndex { .. }
-            );
-            let dynamic = matches!(
-                GuardedIndex::from_expression(index, &self.ir_function.expressions, self.ir_module),
-                GuardedIndex::Expression(_)
-            );
-            if value && dynamic && !element && !self.expression_constness.is_const(base) {
+            let Some((root, path)) = self.constant_path(base) else {
+                continue;
+            };
+            if path.is_empty() {
                 self.function.spill_where_computed.insert(base);
+                continue;
+            }
+            match first_of_member.entry((root, path)) {
+                hashbrown::hash_map::Entry::Occupied(first) => {
+                    self.function.spill_aliases.insert(base, *first.get());
+                }
+                hashbrown::hash_map::Entry::Vacant(vacant) => {
+                    let members = self.function.spill_members.entry(root).or_default();
+                    members.push((base, vacant.key().1.clone()));
+                    vacant.insert(base);
+                }
             }
         }
     }
 
+    /// The value `base` reads from at constant indices, and those indices,
+    /// unless it reads from an element at a dynamic index.
+    fn constant_path(
+        &self,
+        mut base: Handle<crate::Expression>,
+    ) -> Option<(Handle<crate::Expression>, Vec<Word>)> {
+        let mut path = Vec::new();
+        loop {
+            base = match self.ir_function.expressions[base] {
+                crate::Expression::AccessIndex { base, index } => {
+                    path.push(index);
+                    base
+                }
+                crate::Expression::Access { base, index } => {
+                    let GuardedIndex::Known(index) = GuardedIndex::from_expression(
+                        index,
+                        &self.ir_function.expressions,
+                        self.ir_module,
+                    ) else {
+                        return None;
+                    };
+                    path.push(index);
+                    base
+                }
+                _ => {
+                    path.reverse();
+                    return Some((base, path));
+                }
+            };
+        }
+    }
+
+    fn is_known(&self, index: Handle<crate::Expression>) -> bool {
+        matches!(
+            GuardedIndex::from_expression(index, &self.ir_function.expressions, self.ir_module),
+            GuardedIndex::Known(_)
+        )
+    }
+
+    /// The expression whose spill variable holds `expr`'s value.
+    fn spilled_as(&self, expr: Handle<crate::Expression>) -> Handle<crate::Expression> {
+        self.function
+            .spill_aliases
+            .get(&expr)
+            .copied()
+            .unwrap_or(expr)
+    }
+
     /// Stores `expr`, just computed, into its spill variable when a dynamic
-    /// index spills it and no earlier spill holds it.
+    /// index spills it and no earlier spill holds it, and likewise the members
+    /// of it that dynamic indices spill.
     pub(super) fn store_spill(&mut self, expr: Handle<crate::Expression>, block: &mut Block) {
-        if !self.function.spill_where_computed.contains(&expr)
-            || self.function.spilled_accesses.contains(expr)
-        {
+        if self.function.spilled_accesses.contains(expr) {
             return;
         }
-        let spill_id = self.spill_variable(expr, None);
-        block
-            .body
-            .push(Instruction::store(spill_id, self.cached[expr], None));
-        self.function.stored_where_computed.insert(expr);
+        let members = self.function.spill_members.remove(&expr);
+        if self.function.spill_where_computed.contains(&expr) {
+            let spill_id = self.spill_variable(expr, None);
+            block
+                .body
+                .push(Instruction::store(spill_id, self.cached[expr], None));
+            self.function.stored_where_computed.insert(expr);
+            // Its members are read through its variable rather than copied again.
+            if members.is_some() {
+                self.function.spilled_accesses.insert(expr);
+            }
+            return;
+        }
+        for (member, path) in members.into_iter().flatten() {
+            let type_id = self.get_expression_type_id(&self.fun_info[member].ty);
+            let id = self.gen_id();
+            block.body.push(Instruction::composite_extract(
+                type_id,
+                id,
+                self.cached[expr],
+                &path,
+            ));
+            let spill_id = self.spill_variable(member, None);
+            block.body.push(Instruction::store(spill_id, id, None));
+            self.function.stored_where_computed.insert(member);
+        }
     }
 
     fn spill_to_internal_variable(&mut self, base: Handle<crate::Expression>, block: &mut Block) {
@@ -3077,10 +3156,11 @@ impl BlockContext<'_> {
             self.spill_variable(base, Some(self.cached[base]));
             return;
         }
-        if self.function.stored_where_computed.contains(&base) {
+        let spilled = self.spilled_as(base);
+        if self.function.stored_where_computed.contains(&spilled) {
             return;
         }
-        let spill_variable_id = self.spill_variable(base, None);
+        let spill_variable_id = self.spill_variable(spilled, None);
 
         // Perform the store even if we already had a spill variable for `base`.
         // Consider this code:

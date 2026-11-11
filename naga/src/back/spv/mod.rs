@@ -248,6 +248,10 @@ struct EntryPointContext {
     mesh_state: Option<MeshReturnInfo>,
 }
 
+/// The first expression to read a member a dynamic index spills, and the
+/// constant indices of the member in its value.
+type SpilledMember = (Handle<crate::Expression>, Vec<Word>);
+
 #[derive(Default)]
 struct Function {
     signature: Option<Instruction>,
@@ -293,6 +297,12 @@ struct Function {
     /// once where they are computed, and those stored there so far.
     spill_where_computed: crate::FastHashSet<Handle<crate::Expression>>,
     stored_where_computed: crate::FastHashSet<Handle<crate::Expression>>,
+
+    /// The members of a value that dynamic indices spill, keyed by the value.
+    /// Each use of a member is its own expression, so the others that read the
+    /// same member map to the first.
+    spill_members: crate::FastHashMap<Handle<crate::Expression>, Vec<SpilledMember>>,
+    spill_aliases: crate::FastHashMap<Handle<crate::Expression>, Handle<crate::Expression>>,
 
     /// A map taking each expression to the number of [`Access`] and
     /// [`AccessIndex`] expressions that uses it as a base value. If an
