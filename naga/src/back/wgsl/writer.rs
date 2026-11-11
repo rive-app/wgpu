@@ -1866,8 +1866,25 @@ impl<W: Write> Writer<W> {
                     },
                 };
 
-                match function {
-                    Function::Regular(fun_name) => {
+                // Native packs disagree between GPUs on ties, so we clamp and round the
+                // argument first as our other backends do; clamping keeps constants finite.
+                let pack = match fun {
+                    Mf::Pack4x8snorm => Some((4, -1, 127)),
+                    Mf::Pack4x8unorm => Some((4, 0, 255)),
+                    Mf::Pack2x16snorm => Some((2, -1, 32767)),
+                    Mf::Pack2x16unorm => Some((2, 0, 65535)),
+                    _ => None,
+                };
+                match (function, pack) {
+                    (Function::Regular(fun_name), Some((size, low, scale))) => {
+                        write!(self.out, "{fun_name}(floor(clamp(")?;
+                        self.write_expr(module, arg, func_ctx)?;
+                        write!(
+                            self.out,
+                            ", vec{size}({low}f), vec{size}(1f)) * {scale}f + 0.5f) / {scale}f)"
+                        )?;
+                    }
+                    (Function::Regular(fun_name), None) => {
                         write!(self.out, "{fun_name}(")?;
                         self.write_expr(module, arg, func_ctx)?;
                         for arg in IntoIterator::into_iter([arg1, arg2, arg3]).flatten() {
@@ -1876,7 +1893,7 @@ impl<W: Write> Writer<W> {
                         }
                         write!(self.out, ")")?
                     }
-                    Function::InversePolyfill(inverse) => {
+                    (Function::InversePolyfill(inverse), _) => {
                         write!(self.out, "{}(", inverse.fun_name)?;
                         self.write_expr(module, arg, func_ctx)?;
                         write!(self.out, ")")?;

@@ -11,13 +11,13 @@ fn main_1() {
     var f4_: vec4<f32> = vec4(0f);
 
     let _e28 = f4_;
-    u = pack4x8snorm(_e28);
+    u = pack4x8snorm(floor(clamp(_e28, vec4(-1f), vec4(1f)) * 127f + 0.5f) / 127f);
     let _e30 = f4_;
-    u = pack4x8unorm(_e30);
+    u = pack4x8unorm(floor(clamp(_e30, vec4(0f), vec4(1f)) * 255f + 0.5f) / 255f);
     let _e32 = f2_;
-    u = pack2x16snorm(_e32);
+    u = pack2x16snorm(floor(clamp(_e32, vec2(-1f), vec2(1f)) * 32767f + 0.5f) / 32767f);
     let _e34 = f2_;
-    u = pack2x16unorm(_e34);
+    u = pack2x16unorm(floor(clamp(_e34, vec2(0f), vec2(1f)) * 65535f + 0.5f) / 65535f);
     let _e36 = f2_;
     u = pack2x16float(_e36);
     let _e38 = u;
