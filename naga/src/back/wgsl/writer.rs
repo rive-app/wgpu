@@ -2141,6 +2141,15 @@ impl<W: Write> Writer<W> {
     pub fn finish(self) -> W {
         self.out
     }
+
+    /// The name the last `write` gave entry point `index`, which differs from
+    /// the IR's when the namer suffixed it, such as `fs2` written as `fs2_`.
+    pub fn entry_point_name(&self, index: usize) -> Option<&str> {
+        let index = proc::EntryPointIndex::try_from(index).ok()?;
+        self.names
+            .get(&NameKey::EntryPoint(index))
+            .map(String::as_str)
+    }
 }
 
 struct WriterTypeContext<'m> {
