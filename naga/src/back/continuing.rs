@@ -15,13 +15,12 @@ body's temporaries, so they are declared ahead all the same.
 [`Loop`]: crate::Statement::Loop
 */
 
+#[cfg(any(glsl_out, hlsl_out, msl_out))]
 use alloc::vec::Vec;
 
-use crate::{
-    arena::{Arena, Handle, HandleSet},
-    compact::ModuleTracer,
-    proc::TypeResolution,
-};
+use crate::arena::{Arena, Handle, HandleSet};
+#[cfg(any(glsl_out, hlsl_out, msl_out))]
+use crate::{compact::ModuleTracer, proc::TypeResolution};
 
 /// The temporaries `body` defines that the code written for `continuing` and
 /// `break_if` refers to, in increasing handle order. `bakes` says which
@@ -33,6 +32,7 @@ use crate::{
 /// have a `bake_ref_count` of one, so any use at all bakes them, and statement
 /// results have no inline form. What's left to re-evaluate is arithmetic and
 /// address computation.
+#[cfg(any(glsl_out, hlsl_out, msl_out))]
 pub(super) fn continuing_dependencies(
     module: &crate::Module,
     function: &crate::Function,
@@ -67,13 +67,17 @@ pub(super) fn continuing_dependencies(
 /// Metal's compiler makes far faster code of one written as a `for` loop than
 /// of one behind a first pass gate, and ANGLE guards few of them. Other bounds
 /// stay gated: Metal ran slower with a `for` loop bounded by an argument.
-#[cfg(any(glsl_out, msl_out))]
+#[cfg(any(glsl_out, msl_out, wgsl_out))]
 pub(super) struct Counted {
     /// How many leading statements of the body the header replaces.
     pub skip: usize,
     pub condition: Handle<crate::Expression>,
     /// The counter, and the value the step stores to it.
     pub step: (Handle<crate::Expression>, Handle<crate::Expression>),
+    /// Whether the step reads a value the body computes, which a header only
+    /// can once that value is declared ahead of the loop.
+    #[cfg(wgsl_out)]
+    pub reads_body: bool,
 }
 
 /// Whether the loop is [`Counted`]. `bakes` says which expressions the backend
@@ -84,7 +88,7 @@ pub(super) struct Counted {
 /// them may be baked: a load reads the same value there as at the top of the
 /// body, unless it reads an atomic, which another invocation may store to
 /// between two reads.
-#[cfg(any(glsl_out, msl_out))]
+#[cfg(any(glsl_out, msl_out, wgsl_out))]
 pub(super) fn counted(
     module: &crate::Module,
     function: &crate::Function,
@@ -167,6 +171,29 @@ pub(super) fn counted(
     };
     let tested = definitions(expressions, &body[..skip]);
     let stepped = definitions(expressions, continuing);
+    #[cfg(wgsl_out)]
+    let reads_body = {
+        let computed = definitions(expressions, body);
+        let operands = |handle: Handle<Ex>| match expressions[handle] {
+            Ex::Load { pointer } => [Some(pointer), None, None, None],
+            Ex::Unary { expr, .. } | Ex::As { expr, .. } => [Some(expr), None, None, None],
+            Ex::Binary { left, right, .. } => [Some(left), Some(right), None, None],
+            Ex::Math {
+                arg,
+                arg1,
+                arg2,
+                arg3,
+                ..
+            } => [Some(arg), arg1, arg2, arg3],
+            _ => [None; 4],
+        };
+        computed.contains(value)
+            || stepped
+                .iter()
+                .flat_map(operands)
+                .flatten()
+                .any(|operand| computed.contains(operand))
+    };
     (tested
         .iter()
         .all(|handle| only_tested(handle) && in_place(handle))
@@ -175,6 +202,8 @@ pub(super) fn counted(
         skip,
         condition,
         step: (pointer, value),
+        #[cfg(wgsl_out)]
+        reads_body,
     })
 }
 
@@ -259,6 +288,7 @@ fn definitions(
 ///
 /// [`trace_block_including_emits`]: crate::compact::functions::FunctionTracer::trace_block_including_emits
 /// [`trace_block`]: crate::compact::functions::FunctionTracer::trace_block
+#[cfg(any(glsl_out, hlsl_out, msl_out))]
 fn expressions_used(
     module: &crate::Module,
     function: &crate::Function,
@@ -286,6 +316,7 @@ fn expressions_used(
 ///
 /// There is no way to write these inline, so the statement that produces one
 /// always stores it in a temporary, whether or not anything asked for one.
+#[cfg(any(glsl_out, hlsl_out, msl_out))]
 pub(super) const fn is_statement_result(expression: &crate::Expression) -> bool {
     use crate::Expression as Ex;
     match *expression {
@@ -329,6 +360,7 @@ pub(super) const fn is_statement_result(expression: &crate::Expression) -> bool 
 
 /// Whether a value of `handle`'s type can be held in a default-initialized
 /// local temporary.
+#[cfg(any(glsl_out, hlsl_out, msl_out))]
 fn fits_in_temporary(
     module: &crate::Module,
     info: &crate::valid::FunctionInfo,

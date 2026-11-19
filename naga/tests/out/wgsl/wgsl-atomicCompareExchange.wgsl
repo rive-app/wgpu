@@ -7,16 +7,10 @@ var<storage, read_write> arr_u32_: array<atomic<u32>, 128>;
 
 @compute @workgroup_size(1, 1, 1) 
 fn test_atomic_compare_exchange_i32_() {
-    var i: u32 = 0u;
     var old: i32;
     var exchanged: bool;
 
-    loop {
-        let _e2 = i;
-        if (_e2 < SIZE) {
-        } else {
-            break;
-        }
+    for (var i: u32 = 0u; (i < SIZE); i = (i + 1u)) {
         {
             let _e6 = i;
             let _e8 = atomicLoad((&arr_i32_[_e6]));
@@ -39,26 +33,16 @@ fn test_atomic_compare_exchange_i32_() {
                 }
             }
         }
-        continuing {
-            let _e27 = i;
-            i = (_e27 + 1u);
-        }
     }
     return;
 }
 
 @compute @workgroup_size(1, 1, 1) 
 fn test_atomic_compare_exchange_u32_() {
-    var i_1: u32 = 0u;
     var old_1: u32;
     var exchanged_1: bool;
 
-    loop {
-        let _e2 = i_1;
-        if (_e2 < SIZE) {
-        } else {
-            break;
-        }
+    for (var i_1: u32 = 0u; (i_1 < SIZE); i_1 = (i_1 + 1u)) {
         {
             let _e6 = i_1;
             let _e8 = atomicLoad((&arr_u32_[_e6]));
@@ -80,10 +64,6 @@ fn test_atomic_compare_exchange_u32_() {
                     exchanged_1 = _e23.exchanged;
                 }
             }
-        }
-        continuing {
-            let _e27 = i_1;
-            i_1 = (_e27 + 1u);
         }
     }
     return;

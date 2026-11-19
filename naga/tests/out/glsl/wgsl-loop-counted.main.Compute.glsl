@@ -124,103 +124,187 @@ int skips_through_switch() {
     return _e17;
 }
 
-int tests_a_named_load() {
-    int i_5 = 0;
-    for (; (i_5 < 4); i_5 += 1) {
+int nested(int n_1) {
+    int total = 0;
+    int z = -1;
+    int y = 0;
+    for (; (z <= 1); z += 1) {
+        {
+            y = n_1;
+            for (; (y <= 1); y += 1) {
+                {
+                    int _e12 = total;
+                    int _e13 = z;
+                    int _e14 = y;
+                    total = (_e12 + (_e13 * _e14));
+                }
+            }
+        }
     }
-    int _e8 = i_5;
+    int _e23 = total;
+    return _e23;
+}
+
+int stores_another_ahead() {
+    int total_1 = 0;
+    int bias = 0;
+    int i_5 = 0;
+    bias = 7;
+    for (; (i_5 < 4); i_5 += 1) {
+        {
+            int _e10 = total_1;
+            int _e11 = bias;
+            total_1 = (_e10 + _e11);
+        }
+    }
+    int _e16 = total_1;
+    return _e16;
+}
+
+int steps_by_a_body_value() {
+    int n_2 = 0;
+    int i_6 = 0;
+    int stride;
+    for (; (i_6 < 64); i_6 += stride) {
+        int _e7 = i_6;
+        int _e8 = f(_e7);
+        stride = (_e8 + 1);
+        int _e12 = n_2;
+        n_2 = (_e12 + 1);
+    }
+    int _e16 = n_2;
+    return _e16;
+}
+
+int steps_by_a_body_load() {
+    int acc = 1;
+    int i_7 = 0;
+    int x_2;
+    for (; (i_7 < 16); i_7 += x_2) {
+        x_2 = acc;
+        int _e8 = acc;
+        acc = (_e8 + 1);
+    }
+    int _e13 = acc;
+    return _e13;
+}
+
+int carries_on() {
+    int total_2 = 0;
+    int i_8 = 0;
+    int round_ = 0;
+    for (; (round_ < 2); round_ += 1) {
+        {
+            for (; (i_8 < 4); i_8 += 1) {
+                {
+                    int _e12 = total_2;
+                    int _e13 = i_8;
+                    total_2 = (_e12 + _e13);
+                }
+            }
+        }
+    }
+    int _e21 = total_2;
+    return _e21;
+}
+
+int tests_a_named_load() {
+    int i_9 = 0;
+    for (; (i_9 < 4); i_9 += 1) {
+    }
+    int _e8 = i_9;
     return _e8;
 }
 
 int inside_continuing() {
-    int n_1 = 0;
-    int i_6 = 0;
+    int n_3 = 0;
+    int i_10 = 0;
     int j = 0;
     bool loop_init = true;
     while(true) {
         if (!loop_init) {
-            int _e8 = i_6;
-            i_6 = (_e8 + 1);
+            int _e8 = i_10;
+            i_10 = (_e8 + 1);
             j = 0;
             for (; (j < 3); j += 1) {
                 {
-                    int _e16 = n_1;
-                    n_1 = (_e16 + 1);
+                    int _e16 = n_3;
+                    n_3 = (_e16 + 1);
                 }
             }
         }
         loop_init = false;
-        int _e4 = i_6;
+        int _e4 = i_10;
         if ((_e4 >= 2)) {
             break;
         }
     }
-    int _e21 = n_1;
+    int _e21 = n_3;
     return _e21;
 }
 
 int strides() {
-    int i_7 = 0;
-    int stride;
-    for (; (i_7 < 64); i_7 += stride) {
-        int _e5 = i_7;
+    int i_11 = 0;
+    int stride_1;
+    for (; (i_11 < 64); i_11 += stride_1) {
+        int _e5 = i_11;
         int _e6 = f(_e5);
-        stride = (_e6 + 1);
+        stride_1 = (_e6 + 1);
     }
-    int _e11 = i_7;
+    int _e11 = i_11;
     return _e11;
 }
 
 int steps_from_earlier_read() {
-    int i_8 = 0;
-    int n_2 = 0;
-    int start = i_8;
-    for (; (i_8 < 4); i_8 = (start + n_2)) {
+    int i_12 = 0;
+    int n_4 = 0;
+    int start = i_12;
+    for (; (i_12 < 4); i_12 = (start + n_4)) {
         {
-            int _e9 = n_2;
-            n_2 = (_e9 + 1);
+            int _e9 = n_4;
+            n_4 = (_e9 + 1);
         }
     }
-    int _e13 = n_2;
+    int _e13 = n_4;
     return _e13;
 }
 
 int steps_to_earlier_sum() {
-    int i_9 = 0;
-    int n_3 = 0;
+    int i_13 = 0;
+    int n_5 = 0;
     int next;
-    for (; (i_9 < 4); i_9 = next) {
-        int _e7 = i_9;
+    for (; (i_13 < 4); i_13 = next) {
+        int _e7 = i_13;
         next = (_e7 + 1);
-        i_9 = 10;
-        int _e12 = n_3;
-        n_3 = (_e12 + 1);
+        i_13 = 10;
+        int _e12 = n_5;
+        n_5 = (_e12 + 1);
     }
-    int _e14 = n_3;
+    int _e14 = n_5;
     return _e14;
 }
 
 int never_ends() {
-    int n_4 = 0;
-    int i_10 = 0;
+    int n_6 = 0;
+    int i_14 = 0;
     int j_1 = 0;
     uint k = 0u;
     uint l = 0u;
     bool loop_init_1 = true;
     while(true) {
         if (!loop_init_1) {
-            int _e11 = i_10;
-            i_10 = (_e11 + 1);
+            int _e11 = i_14;
+            i_14 = (_e11 + 1);
         }
         loop_init_1 = false;
-        int _e4 = i_10;
+        int _e4 = i_14;
         if ((_e4 <= 2147483647)) {
         } else {
             break;
         }
         {
-            int _e8 = n_4;
-            n_4 = (_e8 + 1);
+            int _e8 = n_6;
+            n_6 = (_e8 + 1);
         }
     }
     bool loop_init_2 = true;
@@ -236,8 +320,8 @@ int never_ends() {
             break;
         }
         {
-            int _e19 = n_4;
-            n_4 = (_e19 + 1);
+            int _e19 = n_6;
+            n_6 = (_e19 + 1);
         }
     }
     bool loop_init_3 = true;
@@ -253,8 +337,8 @@ int never_ends() {
             break;
         }
         {
-            int _e30 = n_4;
-            n_4 = (_e30 + 1);
+            int _e30 = n_6;
+            n_6 = (_e30 + 1);
         }
     }
     bool loop_init_4 = true;
@@ -270,52 +354,52 @@ int never_ends() {
             break;
         }
         {
-            int _e41 = n_4;
-            n_4 = (_e41 + 1);
+            int _e41 = n_6;
+            n_6 = (_e41 + 1);
         }
     }
-    int _e46 = n_4;
+    int _e46 = n_6;
     return _e46;
 }
 
 int names_its_step() {
-    int i_11 = 0;
+    int i_15 = 0;
     bool loop_init_5 = true;
     while(true) {
         if (!loop_init_5) {
-            int _e5 = i_11;
+            int _e5 = i_15;
             int next_1 = (_e5 + 1);
-            i_11 = next_1;
+            i_15 = next_1;
         }
         loop_init_5 = false;
-        int _e2 = i_11;
+        int _e2 = i_15;
         if ((_e2 < 4)) {
         } else {
             break;
         }
     }
-    int _e8 = i_11;
+    int _e8 = i_15;
     return _e8;
 }
 
-int argument_bound(int n_5) {
+int argument_bound(int n_7) {
     int sum_5 = 0;
-    int i_12 = 0;
+    int i_16 = 0;
     bool loop_init_6 = true;
     while(true) {
         if (!loop_init_6) {
-            int _e11 = i_12;
-            i_12 = (_e11 + 1);
+            int _e11 = i_16;
+            i_16 = (_e11 + 1);
         }
         loop_init_6 = false;
-        int _e5 = i_12;
-        if ((_e5 < n_5)) {
+        int _e5 = i_16;
+        if ((_e5 < n_7)) {
         } else {
             break;
         }
         {
             int _e7 = sum_5;
-            int _e8 = i_12;
+            int _e8 = i_16;
             sum_5 = (_e7 + _e8);
         }
     }
@@ -324,27 +408,27 @@ int argument_bound(int n_5) {
 }
 
 int variable_bound() {
-    int n_6 = 4;
+    int n_8 = 4;
     int sum_6 = 0;
-    int i_13 = 0;
+    int i_17 = 0;
     bool loop_init_7 = true;
     while(true) {
         if (!loop_init_7) {
-            int _e16 = i_13;
-            i_13 = (_e16 + 1);
+            int _e16 = i_17;
+            i_17 = (_e16 + 1);
         }
         loop_init_7 = false;
-        int _e6 = i_13;
-        int _e7 = n_6;
+        int _e6 = i_17;
+        int _e7 = n_8;
         if ((_e6 < _e7)) {
         } else {
             break;
         }
         {
-            int _e9 = n_6;
-            n_6 = (_e9 - 1);
+            int _e9 = n_8;
+            n_8 = (_e9 - 1);
             int _e12 = sum_6;
-            int _e13 = i_13;
+            int _e13 = i_17;
             sum_6 = (_e12 + _e13);
         }
     }
@@ -353,17 +437,17 @@ int variable_bound() {
 }
 
 uint no_step() {
-    uint n_7 = 40u;
+    uint n_9 = 40u;
     uint steps = 0u;
     while(true) {
-        uint _e4 = n_7;
+        uint _e4 = n_9;
         if ((_e4 > 1u)) {
         } else {
             break;
         }
         {
-            uint _e7 = n_7;
-            n_7 = (_e7 / 2u);
+            uint _e7 = n_9;
+            n_9 = (_e7 / 2u);
             uint _e10 = steps;
             steps = (_e10 + 1u);
         }
@@ -373,7 +457,7 @@ uint no_step() {
 }
 
 int steps_another() {
-    int i_14 = 0;
+    int i_18 = 0;
     int j_2 = 0;
     bool loop_init_8 = true;
     while(true) {
@@ -382,15 +466,15 @@ int steps_another() {
             j_2 = (_e11 + 1);
         }
         loop_init_8 = false;
-        int _e4 = i_14;
+        int _e4 = i_18;
         if ((_e4 < 4)) {
         } else {
             break;
         }
         {
-            int _e7 = i_14;
+            int _e7 = i_18;
             int _e8 = j_2;
-            i_14 = (_e7 + _e8);
+            i_18 = (_e7 + _e8);
         }
     }
     int _e13 = j_2;
@@ -398,18 +482,18 @@ int steps_another() {
 }
 
 int steps_twice() {
-    int i_15 = 0;
+    int i_19 = 0;
     int j_3 = 8;
     bool loop_init_9 = true;
     while(true) {
         if (!loop_init_9) {
-            int _e8 = i_15;
-            i_15 = (_e8 + 1);
+            int _e8 = i_19;
+            i_19 = (_e8 + 1);
             int _e11 = j_3;
             j_3 = (_e11 - 1);
         }
         loop_init_9 = false;
-        int _e4 = i_15;
+        int _e4 = i_19;
         if ((_e4 < 8)) {
         } else {
             break;
@@ -441,34 +525,34 @@ int steps_a_member() {
 }
 
 int until() {
-    int i_16 = 0;
+    int i_20 = 0;
     bool loop_init_11 = true;
     while(true) {
         if (!loop_init_11) {
-            int _e6 = i_16;
-            i_16 = (_e6 + 1);
+            int _e6 = i_20;
+            i_20 = (_e6 + 1);
         }
         loop_init_11 = false;
-        int _e2 = i_16;
+        int _e2 = i_20;
         if ((_e2 >= 4)) {
             break;
         }
     }
-    int _e8 = i_16;
+    int _e8 = i_20;
     return _e8;
 }
 
 int test_read_later() {
     int hits = 0;
-    int i_17 = 0;
+    int i_21 = 0;
     bool loop_init_12 = true;
     while(true) {
         if (!loop_init_12) {
-            int _e11 = i_17;
-            i_17 = (_e11 + 1);
+            int _e11 = i_21;
+            i_21 = (_e11 + 1);
         }
         loop_init_12 = false;
-        int _e4 = i_17;
+        int _e4 = i_21;
         bool inside = (_e4 < 4);
         if (inside) {
         } else {
@@ -482,86 +566,86 @@ int test_read_later() {
 }
 
 int load_read_later() {
-    int i_18 = 0;
-    int n_8 = 0;
-    int x_2;
+    int i_22 = 0;
+    int n_10 = 0;
+    int x_3;
     bool loop_init_13 = true;
     while(true) {
         if (!loop_init_13) {
-            i_18 = (x_2 + 1);
+            i_22 = (x_3 + 1);
         }
         loop_init_13 = false;
-        x_2 = i_18;
-        if ((x_2 < 4)) {
+        x_3 = i_22;
+        if ((x_3 < 4)) {
         } else {
             break;
         }
-        i_18 = 10;
-        int _e8 = n_8;
-        n_8 = (_e8 + x_2);
+        i_22 = 10;
+        int _e8 = n_10;
+        n_10 = (_e8 + x_3);
     }
-    int _e12 = n_8;
+    int _e12 = n_10;
     return _e12;
 }
 
 int other_load_ahead_of_test(int a) {
-    int i_19 = 0;
+    int i_23 = 0;
     int j_4 = 0;
-    int n_9 = 0;
+    int n_11 = 0;
     j_4 = a;
     bool loop_init_14 = true;
     while(true) {
         if (!loop_init_14) {
-            int _e14 = i_19;
-            i_19 = (_e14 + 1);
+            int _e14 = i_23;
+            i_23 = (_e14 + 1);
         }
         loop_init_14 = false;
-        int y = j_4;
-        int _e7 = i_19;
+        int y_1 = j_4;
+        int _e7 = i_23;
         if ((_e7 < 4)) {
         } else {
             break;
         }
         j_4 = 100;
-        int _e11 = n_9;
-        n_9 = (_e11 + y);
+        int _e11 = n_11;
+        n_11 = (_e11 + y_1);
     }
-    int _e16 = n_9;
+    int _e16 = n_11;
     return _e16;
 }
 
 int steps_by_an_atomic() {
-    int n_10 = 0;
-    int i_20 = 0;
+    int n_12 = 0;
+    int i_24 = 0;
     bool loop_init_15 = true;
     while(true) {
         if (!loop_init_15) {
-            int x_3 = atomicOr(_group_0_binding_1_cs, 0);
-            i_20 = (x_3 + x_3);
+            int x_4 = atomicOr(_group_0_binding_1_cs, 0);
+            i_24 = (x_4 + x_4);
         }
         loop_init_15 = false;
-        int _e4 = i_20;
+        int _e4 = i_24;
         if ((_e4 < 16)) {
         } else {
             break;
         }
-        int _e8 = n_10;
-        n_10 = (_e8 + 1);
+        int _e8 = n_12;
+        n_12 = (_e8 + 1);
     }
-    int _e13 = n_10;
+    int _e13 = n_12;
     return _e13;
 }
 
 int test_calls() {
-    int i_21 = 0;
+    int i_25 = 0;
     bool loop_init_16 = true;
     while(true) {
         if (!loop_init_16) {
-            int _e7 = i_21;
-            i_21 = (_e7 + 1);
+            int _e7 = i_25;
+            i_25 = (_e7 + 1);
         }
         loop_init_16 = false;
-        int _e2 = i_21;
+        int _e2 = i_25;
         int _e3 = f(_e2);
         if ((_e3 < 8)) {
         } else {
@@ -570,21 +654,21 @@ int test_calls() {
         {
         }
     }
-    int _e9 = i_21;
+    int _e9 = i_25;
     return _e9;
 }
 
 int image_test() {
-    int i_22 = 0;
+    int i_26 = 0;
     bool loop_init_17 = true;
     while(true) {
         if (!loop_init_17) {
-            int _e12 = i_22;
-            i_22 = (_e12 + 1);
+            int _e12 = i_26;
+            i_26 = (_e12 + 1);
         }
         loop_init_17 = false;
-        int _e3 = i_22;
-        int _e6 = i_22;
+        int _e3 = i_26;
+        int _e6 = i_26;
         int _e7_clamped_lod = clamp(_e6, 0, textureQueryLevels(_group_0_binding_0_cs) - 1);
         vec4 _e7 = texelFetch(_group_0_binding_0_cs, clamp(ivec2(_e3, 0), ivec2(0), textureSize(_group_0_binding_0_cs, _e7_clamped_lod) - ivec2(1)), _e7_clamped_lod);
         if ((_e7.x > 0.5)) {
@@ -594,30 +678,30 @@ int image_test() {
         {
         }
     }
-    int _e14 = i_22;
+    int _e14 = i_26;
     return _e14;
 }
 
 int breaks_after_step() {
-    int i_23 = 0;
+    int i_27 = 0;
     bool loop_init_18 = true;
     while(true) {
         if (!loop_init_18) {
-            int _e6 = i_23;
-            i_23 = (_e6 + 1);
-            int _e8 = i_23;
+            int _e6 = i_27;
+            i_27 = (_e6 + 1);
+            int _e8 = i_27;
             if ((_e8 == 5)) {
                 break;
             }
         }
         loop_init_18 = false;
-        int _e2 = i_23;
+        int _e2 = i_27;
         if ((_e2 < 8)) {
         } else {
             break;
         }
     }
-    int _e11 = i_23;
+    int _e11 = i_27;
     return _e11;
 }
 
@@ -629,27 +713,32 @@ void main() {
     int _e4 = steps_by_a_call();
     int _e5 = counts_a_flag();
     int _e6 = skips_through_switch();
-    int _e7 = tests_a_named_load();
-    int _e8 = inside_continuing();
-    int _e9 = strides();
-    int _e10 = steps_from_earlier_read();
-    int _e11 = steps_to_earlier_sum();
-    int _e12 = never_ends();
-    int _e13 = names_its_step();
-    int _e15 = argument_bound(3);
-    int _e16 = variable_bound();
-    uint _e17 = no_step();
-    int _e18 = steps_another();
-    int _e19 = steps_twice();
-    int _e20 = steps_a_member();
-    int _e21 = until();
-    int _e22 = test_read_later();
-    int _e23 = load_read_later();
-    int _e25 = other_load_ahead_of_test(2);
-    int _e26 = steps_by_an_atomic();
-    int _e27 = test_calls();
-    int _e28 = image_test();
-    int _e29 = breaks_after_step();
+    int _e8 = nested(0);
+    int _e9 = stores_another_ahead();
+    int _e10 = steps_by_a_body_value();
+    int _e11 = steps_by_a_body_load();
+    int _e12 = carries_on();
+    int _e13 = tests_a_named_load();
+    int _e14 = inside_continuing();
+    int _e15 = strides();
+    int _e16 = steps_from_earlier_read();
+    int _e17 = steps_to_earlier_sum();
+    int _e18 = never_ends();
+    int _e19 = names_its_step();
+    int _e21 = argument_bound(3);
+    int _e22 = variable_bound();
+    uint _e23 = no_step();
+    int _e24 = steps_another();
+    int _e25 = steps_twice();
+    int _e26 = steps_a_member();
+    int _e27 = until();
+    int _e28 = test_read_later();
+    int _e29 = load_read_later();
+    int _e31 = other_load_ahead_of_test(2);
+    int _e32 = steps_by_an_atomic();
+    int _e33 = test_calls();
+    int _e34 = image_test();
+    int _e35 = breaks_after_step();
     return;
 }
 

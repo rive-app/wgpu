@@ -2,6 +2,9 @@
 // testing a local variable against a constant, and whose `continuing` block is
 // one store to that variable. Any other loop keeps its test in the body and
 // its `continuing` block behind a first pass gate.
+//
+// WGSL writes one as a `for` loop only when it can declare the counter in the
+// header, which takes every use of the counter to be inside the loop.
 
 const LIMIT = 6u;
 const MOST = 4294967295u;
@@ -77,6 +80,80 @@ fn skips_through_switch() -> i32 {
         sum += i;
     }
     return sum;
+}
+
+// The counter of the inner loop starts over on each pass of the outer one, from
+// a store ahead of it, which the header takes over.
+fn nested(n: i32) -> i32 {
+    var total = 0;
+    for (var z = -1; z <= 1; z++) {
+        for (var y = n; y <= 1; y++) {
+            total += z * y;
+        }
+    }
+    return total;
+}
+
+// The store ahead of the loop is to another variable, so the counter starts
+// at its own initializer.
+fn stores_another_ahead() -> i32 {
+    var total = 0;
+    var bias = 0;
+    bias = 7;
+    for (var i = 0; i < 4; i++) {
+        total += bias;
+    }
+    return total;
+}
+
+// WGSL writes its header above the body, so a step that reads `stride` from
+// the body would read it before it is made. GLSL and MSL declare it ahead.
+fn steps_by_a_body_value() -> i32 {
+    var n = 0;
+    var i = 0;
+    loop {
+        if i < 64 {
+        } else {
+            break;
+        }
+        let stride = f(i) + 1;
+        n++;
+        continuing {
+            i += stride;
+        }
+    }
+    return n;
+}
+
+// `x` holds what `acc` was before the body stored to it.
+fn steps_by_a_body_load() -> i32 {
+    var acc = 1;
+    var i = 0;
+    loop {
+        if i < 16 {
+        } else {
+            break;
+        }
+        let x = acc;
+        acc += 1;
+        continuing {
+            i = i + x;
+        }
+    }
+    return acc;
+}
+
+// Nothing starts `i` over ahead of the inner loop, so a header that declared
+// it there would.
+fn carries_on() -> i32 {
+    var total = 0;
+    var i = 0;
+    for (var round = 0; round < 2; round++) {
+        for (; i < 4; i++) {
+            total += i;
+        }
+    }
+    return total;
 }
 
 // The header reads in place the load the test named.
@@ -386,6 +463,11 @@ fn main() {
     _ = steps_by_a_call();
     _ = counts_a_flag();
     _ = skips_through_switch();
+    _ = nested(0);
+    _ = stores_another_ahead();
+    _ = steps_by_a_body_value();
+    _ = steps_by_a_body_load();
+    _ = carries_on();
     _ = tests_a_named_load();
     _ = inside_continuing();
     _ = strides();

@@ -89,6 +89,63 @@ pub struct Writer<W> {
     /// The loads of the function being written that get a copy of their own,
     /// as `back::rereads` says.
     copied_loads: crate::FastHashSet<Handle<crate::Expression>>,
+    /// The loops of the function being written that become `for` loops, by
+    /// the condition each tests.
+    header_loops: crate::FastHashMap<Handle<crate::Expression>, HeaderLoop>,
+    /// The counters those loops declare, each with the value a store ahead of
+    /// its loop starts it at, if one does.
+    header_counters:
+        crate::FastHashMap<Handle<crate::LocalVariable>, Option<Handle<crate::Expression>>>,
+}
+
+/// A counted loop whose counter nothing outside it uses, so the counter can be
+/// declared in a `for` header. Tint takes a loop to end only when its counter
+/// is declared there, and counts the passes of every other loop, which Metal
+/// makes slow code of.
+struct HeaderLoop {
+    /// How many leading statements of the body the header replaces.
+    skip: usize,
+    counter: Handle<crate::LocalVariable>,
+    ty: Handle<crate::Type>,
+    /// The value the counter starts at.
+    start: Handle<crate::Expression>,
+    /// The counter, and the value the step stores to it.
+    step: (Handle<crate::Expression>, Handle<crate::Expression>),
+}
+
+/// How many loads of `pointer` the statements of `block` emit, at any depth.
+fn loads_of(
+    block: &[crate::Statement],
+    pointer: Handle<crate::Expression>,
+    expressions: &crate::Arena<crate::Expression>,
+) -> usize {
+    use crate::Statement as St;
+
+    let is_load = |handle: &Handle<crate::Expression>| {
+        expressions[*handle] == crate::Expression::Load { pointer }
+    };
+    block
+        .iter()
+        .map(|statement| match *statement {
+            St::Emit(ref range) => range.clone().filter(is_load).count(),
+            St::Block(ref block) => loads_of(block, pointer, expressions),
+            St::If {
+                ref accept,
+                ref reject,
+                ..
+            } => loads_of(accept, pointer, expressions) + loads_of(reject, pointer, expressions),
+            St::Switch { ref cases, .. } => cases
+                .iter()
+                .map(|case| loads_of(&case.body, pointer, expressions))
+                .sum(),
+            St::Loop {
+                ref body,
+                ref continuing,
+                ..
+            } => loads_of(body, pointer, expressions) + loads_of(continuing, pointer, expressions),
+            _ => 0,
+        })
+        .sum()
 }
 
 impl<W: Write> Writer<W> {
@@ -101,6 +158,8 @@ impl<W: Write> Writer<W> {
             named_expressions: crate::NamedExpressions::default(),
             required_polyfills: crate::FastIndexSet::default(),
             copied_loads: crate::FastHashSet::default(),
+            header_loops: Default::default(),
+            header_counters: Default::default(),
         }
     }
 
@@ -116,6 +175,8 @@ impl<W: Write> Writer<W> {
             &mut self.names,
         );
         self.named_expressions.clear();
+        self.header_loops.clear();
+        self.header_counters.clear();
         self.required_polyfills.clear();
         self.copied_loads.clear();
     }
@@ -540,43 +601,36 @@ impl<W: Write> Writer<W> {
         write!(self.out, " {{")?;
         writeln!(self.out)?;
 
-        // Write function local variables
-        for (handle, local) in func.local_variables.iter() {
-            // Write indentation (only for readability)
-            write!(self.out, "{}", back::INDENT)?;
-
-            // Write the local name
-            // The leading space is important
-            write!(self.out, "var {}: ", self.names[&func_ctx.name_key(handle)])?;
-
-            // Write the local type
-            self.write_type(module, local.ty)?;
-
-            // Write the local initializer if needed
-            if let Some(init) = local.init {
-                // Put the equal signal only if there's a initializer
-                // The leading and trailing spaces aren't needed but help with readability
-                write!(self.out, " = ")?;
-
-                // Write the constant
-                // `write_constant` adds no trailing or leading space/newline
-                self.write_expr(module, init, func_ctx)?;
-            }
-
-            // Finish the local with `;` and add a newline (only for readability)
-            writeln!(self.out, ";")?
-        }
-
-        if !func.local_variables.is_empty() {
-            writeln!(self.out)?;
-        }
-
         self.copied_loads = func
             .expressions
             .iter()
             .map(|(handle, _)| handle)
             .filter(|&load| back::rereads::reread_after_write(module, func, func_ctx.info, load))
             .collect();
+        // A counter named by several pointer expressions is not followed.
+        let mut pointers = crate::FastHashMap::default();
+        for (_, expression) in func.expressions.iter() {
+            if let crate::Expression::LocalVariable(local) = *expression {
+                *pointers.entry(local).or_insert(0) += 1;
+            }
+        }
+        self.find_header_loops(module, func, func_ctx.info, &pointers, &func.body, false);
+
+        // Write function local variables
+        for (handle, local) in func.local_variables.iter() {
+            if self.header_counters.contains_key(&handle) {
+                continue;
+            }
+            // Write indentation (only for readability)
+            write!(self.out, "{}", back::INDENT)?;
+            self.write_local(module, handle, local.ty, local.init, func_ctx)?;
+            // Finish the local with `;` and add a newline (only for readability)
+            writeln!(self.out, ";")?
+        }
+
+        if func.local_variables.len() > self.header_counters.len() {
+            writeln!(self.out)?;
+        }
 
         // Write the function body (statement list)
         for sta in func.body.iter() {
@@ -588,7 +642,154 @@ impl<W: Write> Writer<W> {
 
         self.named_expressions.clear();
         self.copied_loads.clear();
+        self.header_loops.clear();
+        self.header_counters.clear();
 
+        Ok(())
+    }
+
+    /// Records the loops of `block`, at any depth, that become `for` loops.
+    ///
+    /// The counter starts at the value stored right ahead of its loop, or at
+    /// its own initializer, which only holds for a loop that runs once a
+    /// call. Declaring it in the header takes every use to be inside the loop.
+    fn find_header_loops(
+        &mut self,
+        module: &Module,
+        func: &crate::Function,
+        info: &valid::FunctionInfo,
+        pointers: &crate::FastHashMap<Handle<crate::LocalVariable>, usize>,
+        block: &[crate::Statement],
+        in_loop: bool,
+    ) {
+        use crate::{Expression as Ex, Statement as St};
+
+        for (index, statement) in block.iter().enumerate() {
+            match *statement {
+                St::Block(ref block) => {
+                    self.find_header_loops(module, func, info, pointers, block, in_loop)
+                }
+                St::If {
+                    ref accept,
+                    ref reject,
+                    ..
+                } => {
+                    self.find_header_loops(module, func, info, pointers, accept, in_loop);
+                    self.find_header_loops(module, func, info, pointers, reject, in_loop);
+                }
+                St::Switch { ref cases, .. } => {
+                    for case in cases {
+                        self.find_header_loops(module, func, info, pointers, &case.body, in_loop);
+                    }
+                }
+                St::Loop {
+                    ref body,
+                    ref continuing,
+                    break_if,
+                } => {
+                    self.find_header_loops(module, func, info, pointers, body, true);
+                    self.find_header_loops(module, func, info, pointers, continuing, true);
+
+                    let bakes = |handle: Handle<Ex>| {
+                        let expression = &func.expressions[handle];
+                        func.named_expressions.contains_key(&handle)
+                            || expression.bake_ref_count() <= info[handle].ref_count
+                            || matches!(
+                                *expression,
+                                Ex::ImageLoad { .. }
+                                    | Ex::ImageQuery { .. }
+                                    | Ex::ImageSample { .. }
+                            )
+                    };
+                    let Some(counted) = back::continuing::counted(
+                        module, func, info, body, continuing, break_if, bakes,
+                    ) else {
+                        continue;
+                    };
+                    let (pointer, _) = counted.step;
+                    let Ex::LocalVariable(counter) = func.expressions[pointer] else {
+                        continue;
+                    };
+                    // The header is written above the body, and names its
+                    // loop by a test the loop itself emits.
+                    let emits_test = body[..counted.skip].iter().any(|statement| {
+                        matches!(*statement, St::Emit(ref range) if range.clone().any(|handle| handle == counted.condition))
+                    });
+                    if counted.reads_body || !emits_test {
+                        continue;
+                    }
+                    let stored = match index.checked_sub(1).map(|ahead| &block[ahead]) {
+                        Some(&St::Store { pointer: to, value }) if to == pointer => Some(value),
+                        _ => None,
+                    };
+                    let local = &func.local_variables[counter];
+                    let Some(start) = stored.or(local.init.filter(|_| !in_loop)) else {
+                        continue;
+                    };
+                    // The loads, the step and the store ahead are the only uses.
+                    let uses = loads_of(body, pointer, &func.expressions)
+                        + loads_of(continuing, pointer, &func.expressions)
+                        + 1
+                        + usize::from(stored.is_some());
+                    let named_once = pointers.get(&counter) == Some(&1);
+                    let copied = |block: &[St]| {
+                        block.iter().any(|statement| match *statement {
+                            St::Emit(ref range) => range
+                                .clone()
+                                .any(|handle| self.copied_loads.contains(&handle)),
+                            _ => false,
+                        })
+                    };
+                    if uses != info[pointer].ref_count
+                        || !named_once
+                        || copied(&body[..counted.skip])
+                        || copied(continuing)
+                    {
+                        continue;
+                    }
+                    self.header_counters.insert(counter, stored);
+                    self.header_loops.insert(
+                        counted.condition,
+                        HeaderLoop {
+                            skip: counted.skip,
+                            counter,
+                            ty: local.ty,
+                            start,
+                            step: counted.step,
+                        },
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Writes the declaration of a local variable that starts at `init`.
+    fn write_local(
+        &mut self,
+        module: &Module,
+        handle: Handle<crate::LocalVariable>,
+        ty: Handle<crate::Type>,
+        init: Option<Handle<crate::Expression>>,
+        func_ctx: &back::FunctionCtx<'_>,
+    ) -> BackendResult {
+        // Write the local name
+        // The leading space is important
+        write!(self.out, "var {}: ", self.names[&func_ctx.name_key(handle)])?;
+
+        // Write the local type
+        self.write_type(module, ty)?;
+
+        // Write the local initializer if needed
+        if let Some(init) = init {
+            // Put the equal signal only if there's a initializer
+            // The leading and trailing spaces aren't needed but help with readability
+            write!(self.out, " = ")?;
+
+            // Write the constant
+            // `write_constant` adds no trailing or leading space/newline
+            self.write_expr(module, init, func_ctx)?;
+        }
         Ok(())
     }
 
@@ -830,6 +1031,12 @@ impl<W: Write> Writer<W> {
                 writeln!(self.out, "discard;")?
             }
             Statement::Store { pointer, value } => {
+                // The `for` header of the loop that follows starts its counter here.
+                if let Expression::LocalVariable(local) = func_ctx.expressions[pointer] {
+                    if self.header_counters.get(&local) == Some(&Some(value)) {
+                        return Ok(());
+                    }
+                }
                 write!(self.out, "{level}")?;
 
                 let is_atomic_pointer = func_ctx
@@ -1028,6 +1235,43 @@ impl<W: Write> Writer<W> {
                 ref continuing,
                 break_if,
             } => {
+                let tested = body.iter().find_map(|statement| match *statement {
+                    Statement::Emit(_) => None,
+                    Statement::If { condition, .. } => Some(Some(condition)),
+                    _ => Some(None),
+                });
+                if let Some((condition, header)) = tested
+                    .flatten()
+                    .and_then(|condition| Some((condition, self.header_loops.remove(&condition)?)))
+                {
+                    let (pointer, value) = header.step;
+                    write!(self.out, "{level}for (")?;
+                    self.write_local(
+                        module,
+                        header.counter,
+                        header.ty,
+                        Some(header.start),
+                        func_ctx,
+                    )?;
+                    write!(self.out, "; ")?;
+                    self.write_expr(module, condition, func_ctx)?;
+                    write!(self.out, "; ")?;
+                    self.write_expr_with_indirection(
+                        module,
+                        pointer,
+                        func_ctx,
+                        Indirection::Reference,
+                    )?;
+                    write!(self.out, " = ")?;
+                    self.write_expr(module, value, func_ctx)?;
+                    writeln!(self.out, ") {{")?;
+                    for sta in body[header.skip..].iter() {
+                        self.write_stmt(module, sta, func_ctx, level.next())?;
+                    }
+                    writeln!(self.out, "{level}}}")?;
+                    return Ok(());
+                }
+
                 write!(self.out, "{level}")?;
                 writeln!(self.out, "loop {{")?;
 

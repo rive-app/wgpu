@@ -29,7 +29,7 @@ pub mod pipeline_constants;
 
 #[cfg(any(hlsl_out, glsl_out))]
 mod continue_forward;
-#[cfg(any(glsl_out, hlsl_out, msl_out))]
+#[cfg(any(glsl_out, hlsl_out, msl_out, wgsl_out))]
 mod continuing;
 #[cfg(any(spv_out, wgsl_out))]
 pub(crate) mod rereads;

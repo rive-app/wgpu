@@ -1,4 +1,4 @@
-targets = "METAL | GLSL"
+targets = "METAL | GLSL | WGSL"
 
 # `image_test` needs this for the level its load clamps in a statement of its own.
 [bounds_check_policies]
