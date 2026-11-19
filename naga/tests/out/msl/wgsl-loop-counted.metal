@@ -578,59 +578,68 @@ int test_read_later(
     return _e13;
 }
 
-int test_calls(
+int load_read_later(
 ) {
     int i_18 = 0;
+    int n_8 = 0;
+    int x_2 = {};
     uint2 loop_bound_26 = uint2(4294967295u);
     bool loop_init_13 = true;
     while(true) {
         if (metal::all(loop_bound_26 == uint2(0u))) { break; }
         loop_bound_26 -= uint2(loop_bound_26.y == 0u, 1u);
         if (!loop_init_13) {
-            int _e7 = i_18;
-            i_18 = as_type<int>(as_type<uint>(_e7) + as_type<uint>(1));
+            i_18 = as_type<int>(as_type<uint>(x_2) + as_type<uint>(1));
         }
         loop_init_13 = false;
-        int _e2 = i_18;
-        int _e3 = f(_e2);
-        if (_e3 < 8) {
+        x_2 = i_18;
+        if (x_2 < 4) {
         } else {
             break;
         }
+        i_18 = 10;
+        int _e8 = n_8;
+        n_8 = as_type<int>(as_type<uint>(_e8) + as_type<uint>(x_2));
     }
-    int _e9 = i_18;
-    return _e9;
+    int _e12 = n_8;
+    return _e12;
 }
 
-int image_test(
-    metal::texture2d<float, metal::access::sample> image
+int other_load_ahead_of_test(
+    int a
 ) {
     int i_19 = 0;
+    int j_4 = {};
+    int n_9 = 0;
+    j_4 = a;
     uint2 loop_bound_27 = uint2(4294967295u);
     bool loop_init_14 = true;
     while(true) {
         if (metal::all(loop_bound_27 == uint2(0u))) { break; }
         loop_bound_27 -= uint2(loop_bound_27.y == 0u, 1u);
         if (!loop_init_14) {
-            int _e12 = i_19;
-            i_19 = as_type<int>(as_type<uint>(_e12) + as_type<uint>(1));
+            int _e14 = i_19;
+            i_19 = as_type<int>(as_type<uint>(_e14) + as_type<uint>(1));
         }
         loop_init_14 = false;
-        int _e3 = i_19;
-        int _e6 = i_19;
-        uint clamped_lod_e7 = metal::min(uint(_e6), image.get_num_mip_levels() - 1);
-        metal::float4 _e7 = image.read(metal::min(metal::uint2(metal::int2(_e3, 0)), metal::uint2(image.get_width(clamped_lod_e7), image.get_height(clamped_lod_e7)) - 1), clamped_lod_e7);
-        if (_e7.x > 0.5) {
+        int y = j_4;
+        int _e7 = i_19;
+        if (_e7 < 4) {
         } else {
             break;
         }
+        j_4 = 100;
+        int _e11 = n_9;
+        n_9 = as_type<int>(as_type<uint>(_e11) + as_type<uint>(y));
     }
-    int _e14 = i_19;
-    return _e14;
+    int _e16 = n_9;
+    return _e16;
 }
 
-int breaks_after_step(
+int steps_by_an_atomic(
+    device metal::atomic_int const& tally
 ) {
+    int n_10 = 0;
     int i_20 = 0;
     uint2 loop_bound_28 = uint2(4294967295u);
     bool loop_init_15 = true;
@@ -638,26 +647,103 @@ int breaks_after_step(
         if (metal::all(loop_bound_28 == uint2(0u))) { break; }
         loop_bound_28 -= uint2(loop_bound_28.y == 0u, 1u);
         if (!loop_init_15) {
-            int _e6 = i_20;
-            i_20 = as_type<int>(as_type<uint>(_e6) + as_type<uint>(1));
-            int _e8 = i_20;
+            int x_3 = metal::atomic_load_explicit(&tally, metal::memory_order_relaxed);
+            i_20 = as_type<int>(as_type<uint>(x_3) + as_type<uint>(x_3));
+        }
+        loop_init_15 = false;
+        int _e4 = i_20;
+        if (_e4 < 16) {
+        } else {
+            break;
+        }
+        int _e8 = n_10;
+        n_10 = as_type<int>(as_type<uint>(_e8) + as_type<uint>(1));
+    }
+    int _e13 = n_10;
+    return _e13;
+}
+
+int test_calls(
+) {
+    int i_21 = 0;
+    uint2 loop_bound_29 = uint2(4294967295u);
+    bool loop_init_16 = true;
+    while(true) {
+        if (metal::all(loop_bound_29 == uint2(0u))) { break; }
+        loop_bound_29 -= uint2(loop_bound_29.y == 0u, 1u);
+        if (!loop_init_16) {
+            int _e7 = i_21;
+            i_21 = as_type<int>(as_type<uint>(_e7) + as_type<uint>(1));
+        }
+        loop_init_16 = false;
+        int _e2 = i_21;
+        int _e3 = f(_e2);
+        if (_e3 < 8) {
+        } else {
+            break;
+        }
+    }
+    int _e9 = i_21;
+    return _e9;
+}
+
+int image_test(
+    metal::texture2d<float, metal::access::sample> image
+) {
+    int i_22 = 0;
+    uint2 loop_bound_30 = uint2(4294967295u);
+    bool loop_init_17 = true;
+    while(true) {
+        if (metal::all(loop_bound_30 == uint2(0u))) { break; }
+        loop_bound_30 -= uint2(loop_bound_30.y == 0u, 1u);
+        if (!loop_init_17) {
+            int _e12 = i_22;
+            i_22 = as_type<int>(as_type<uint>(_e12) + as_type<uint>(1));
+        }
+        loop_init_17 = false;
+        int _e3 = i_22;
+        int _e6 = i_22;
+        uint clamped_lod_e7 = metal::min(uint(_e6), image.get_num_mip_levels() - 1);
+        metal::float4 _e7 = image.read(metal::min(metal::uint2(metal::int2(_e3, 0)), metal::uint2(image.get_width(clamped_lod_e7), image.get_height(clamped_lod_e7)) - 1), clamped_lod_e7);
+        if (_e7.x > 0.5) {
+        } else {
+            break;
+        }
+    }
+    int _e14 = i_22;
+    return _e14;
+}
+
+int breaks_after_step(
+) {
+    int i_23 = 0;
+    uint2 loop_bound_31 = uint2(4294967295u);
+    bool loop_init_18 = true;
+    while(true) {
+        if (metal::all(loop_bound_31 == uint2(0u))) { break; }
+        loop_bound_31 -= uint2(loop_bound_31.y == 0u, 1u);
+        if (!loop_init_18) {
+            int _e6 = i_23;
+            i_23 = as_type<int>(as_type<uint>(_e6) + as_type<uint>(1));
+            int _e8 = i_23;
             if (_e8 == 5) {
                 break;
             }
         }
-        loop_init_15 = false;
-        int _e2 = i_20;
+        loop_init_18 = false;
+        int _e2 = i_23;
         if (_e2 < 8) {
         } else {
             break;
         }
     }
-    int _e11 = i_20;
+    int _e11 = i_23;
     return _e11;
 }
 
 kernel void main_(
   metal::texture2d<float, metal::access::sample> image [[user(fake0)]]
+, device metal::atomic_int const& tally [[user(fake0)]]
 ) {
     int _e0 = counted();
     uint _e1 = constant_bound();
@@ -681,8 +767,11 @@ kernel void main_(
     int _e20 = steps_a_member();
     int _e21 = until();
     int _e22 = test_read_later();
-    int _e23 = test_calls();
-    int _e24 = image_test(image);
-    int _e25 = breaks_after_step();
+    int _e23 = load_read_later();
+    int _e25 = other_load_ahead_of_test(2);
+    int _e26 = steps_by_an_atomic(tally);
+    int _e27 = test_calls();
+    int _e28 = image_test(image);
+    int _e29 = breaks_after_step();
     return;
 }

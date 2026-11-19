@@ -7,6 +7,7 @@ const LIMIT = 6u;
 const MOST = 4294967295u;
 
 @group(0) @binding(0) var image: texture_2d<f32>;
+@group(0) @binding(1) var<storage, read_write> tally: atomic<i32>;
 
 fn f(x: i32) -> i32 { return x * 2; }
 
@@ -285,6 +286,65 @@ fn test_read_later() -> i32 {
     return hits;
 }
 
+// The body reads `x` again after storing to the counter, so it stays a
+// temporary.
+fn load_read_later() -> i32 {
+    var i = 0;
+    var n = 0;
+    loop {
+        let x = i;
+        if x < 4 {
+        } else {
+            break;
+        }
+        i = 10;
+        n += x;
+        continuing {
+            i = x + 1;
+        }
+    }
+    return n;
+}
+
+// `y` is not what the test reads, and the body reads it after a store.
+fn other_load_ahead_of_test(a: i32) -> i32 {
+    var i = 0;
+    var j = a;
+    var n = 0;
+    loop {
+        let y = j;
+        if i < 4 {
+        } else {
+            break;
+        }
+        j = 100;
+        n += y;
+        continuing {
+            i++;
+        }
+    }
+    return n;
+}
+
+// Another invocation may store to `tally` between two reads, so the step keeps
+// the one read it names.
+fn steps_by_an_atomic() -> i32 {
+    var n = 0;
+    var i = 0;
+    loop {
+        if i < 16 {
+        } else {
+            break;
+        }
+        n++;
+        continuing {
+            let x = atomicLoad(&tally);
+            i = x + x;
+        }
+    }
+    return n;
+}
+
 // A call is a statement, which a header cannot hold.
 fn test_calls() -> i32 {
     var i = 0;
@@ -341,6 +401,9 @@ fn main() {
     _ = steps_a_member();
     _ = until();
     _ = test_read_later();
+    _ = load_read_later();
+    _ = other_load_ahead_of_test(2);
+    _ = steps_by_an_atomic();
     _ = test_calls();
     _ = image_test();
     _ = breaks_after_step();

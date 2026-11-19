@@ -82,7 +82,8 @@ pub(super) struct Counted {
 /// The header evaluates in place what the statements it replaces would have
 /// held in temporaries, so only the test may read those, and only loads among
 /// them may be baked: a load reads the same value there as at the top of the
-/// body.
+/// body, unless it reads an atomic, which another invocation may store to
+/// between two reads.
 #[cfg(any(glsl_out, msl_out))]
 pub(super) fn counted(
     module: &crate::Module,
@@ -154,7 +155,10 @@ pub(super) fn counted(
 
     // Other expressions may come with statements of their own where they are emitted.
     let in_place = |handle| match expressions[handle] {
-        Ex::Load { .. } => true,
+        Ex::Load { pointer } => {
+            let types = &module.types;
+            !info[pointer].ty.inner_with(types).is_atomic_pointer(types)
+        }
         Ex::Unary { .. } | Ex::Binary { .. } | Ex::Math { .. } | Ex::As { .. } => !bakes(handle),
         _ => false,
     };

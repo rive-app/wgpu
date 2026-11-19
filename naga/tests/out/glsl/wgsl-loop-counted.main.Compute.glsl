@@ -1,11 +1,14 @@
 #version 430 core
 #extension GL_ARB_compute_shader : require
+#extension GL_ARB_shader_storage_buffer_object : require
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 const uint LIMIT = 6u;
 const uint MOST = 4294967295u;
 
 uniform sampler2D _group_0_binding_0_cs;
+
+layout(std430) buffer type_4_block_0Compute { int _group_0_binding_1_cs; };
 
 
 int f(int x) {
@@ -478,16 +481,87 @@ int test_read_later() {
     return _e13;
 }
 
-int test_calls() {
+int load_read_later() {
     int i_18 = 0;
+    int n_8 = 0;
+    int x_2;
     bool loop_init_13 = true;
     while(true) {
         if (!loop_init_13) {
-            int _e7 = i_18;
-            i_18 = (_e7 + 1);
+            i_18 = (x_2 + 1);
         }
         loop_init_13 = false;
-        int _e2 = i_18;
+        x_2 = i_18;
+        if ((x_2 < 4)) {
+        } else {
+            break;
+        }
+        i_18 = 10;
+        int _e8 = n_8;
+        n_8 = (_e8 + x_2);
+    }
+    int _e12 = n_8;
+    return _e12;
+}
+
+int other_load_ahead_of_test(int a) {
+    int i_19 = 0;
+    int j_4 = 0;
+    int n_9 = 0;
+    j_4 = a;
+    bool loop_init_14 = true;
+    while(true) {
+        if (!loop_init_14) {
+            int _e14 = i_19;
+            i_19 = (_e14 + 1);
+        }
+        loop_init_14 = false;
+        int y = j_4;
+        int _e7 = i_19;
+        if ((_e7 < 4)) {
+        } else {
+            break;
+        }
+        j_4 = 100;
+        int _e11 = n_9;
+        n_9 = (_e11 + y);
+    }
+    int _e16 = n_9;
+    return _e16;
+}
+
+int steps_by_an_atomic() {
+    int n_10 = 0;
+    int i_20 = 0;
+    bool loop_init_15 = true;
+    while(true) {
+        if (!loop_init_15) {
+            int x_3 = atomicOr(_group_0_binding_1_cs, 0);
+            i_20 = (x_3 + x_3);
+        }
+        loop_init_15 = false;
+        int _e4 = i_20;
+        if ((_e4 < 16)) {
+        } else {
+            break;
+        }
+        int _e8 = n_10;
+        n_10 = (_e8 + 1);
+    }
+    int _e13 = n_10;
+    return _e13;
+}
+
+int test_calls() {
+    int i_21 = 0;
+    bool loop_init_16 = true;
+    while(true) {
+        if (!loop_init_16) {
+            int _e7 = i_21;
+            i_21 = (_e7 + 1);
+        }
+        loop_init_16 = false;
+        int _e2 = i_21;
         int _e3 = f(_e2);
         if ((_e3 < 8)) {
         } else {
@@ -496,21 +570,21 @@ int test_calls() {
         {
         }
     }
-    int _e9 = i_18;
+    int _e9 = i_21;
     return _e9;
 }
 
 int image_test() {
-    int i_19 = 0;
-    bool loop_init_14 = true;
+    int i_22 = 0;
+    bool loop_init_17 = true;
     while(true) {
-        if (!loop_init_14) {
-            int _e12 = i_19;
-            i_19 = (_e12 + 1);
+        if (!loop_init_17) {
+            int _e12 = i_22;
+            i_22 = (_e12 + 1);
         }
-        loop_init_14 = false;
-        int _e3 = i_19;
-        int _e6 = i_19;
+        loop_init_17 = false;
+        int _e3 = i_22;
+        int _e6 = i_22;
         int _e7_clamped_lod = clamp(_e6, 0, textureQueryLevels(_group_0_binding_0_cs) - 1);
         vec4 _e7 = texelFetch(_group_0_binding_0_cs, clamp(ivec2(_e3, 0), ivec2(0), textureSize(_group_0_binding_0_cs, _e7_clamped_lod) - ivec2(1)), _e7_clamped_lod);
         if ((_e7.x > 0.5)) {
@@ -520,30 +594,30 @@ int image_test() {
         {
         }
     }
-    int _e14 = i_19;
+    int _e14 = i_22;
     return _e14;
 }
 
 int breaks_after_step() {
-    int i_20 = 0;
-    bool loop_init_15 = true;
+    int i_23 = 0;
+    bool loop_init_18 = true;
     while(true) {
-        if (!loop_init_15) {
-            int _e6 = i_20;
-            i_20 = (_e6 + 1);
-            int _e8 = i_20;
+        if (!loop_init_18) {
+            int _e6 = i_23;
+            i_23 = (_e6 + 1);
+            int _e8 = i_23;
             if ((_e8 == 5)) {
                 break;
             }
         }
-        loop_init_15 = false;
-        int _e2 = i_20;
+        loop_init_18 = false;
+        int _e2 = i_23;
         if ((_e2 < 8)) {
         } else {
             break;
         }
     }
-    int _e11 = i_20;
+    int _e11 = i_23;
     return _e11;
 }
 
@@ -570,9 +644,12 @@ void main() {
     int _e20 = steps_a_member();
     int _e21 = until();
     int _e22 = test_read_later();
-    int _e23 = test_calls();
-    int _e24 = image_test();
-    int _e25 = breaks_after_step();
+    int _e23 = load_read_later();
+    int _e25 = other_load_ahead_of_test(2);
+    int _e26 = steps_by_an_atomic();
+    int _e27 = test_calls();
+    int _e28 = image_test();
+    int _e29 = breaks_after_step();
     return;
 }
 
