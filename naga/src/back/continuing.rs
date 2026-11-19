@@ -1,11 +1,16 @@
 /*!
-Finding the temporaries a loop's `continuing` block needs from its body.
+Finding the temporaries a loop's `continuing` block needs from its body, and
+the loops a `for` statement can express.
 
 Naga IR's [`Loop`] statement runs its `continuing` block after its `body`, but
 the textual backends have no equivalent construct, so they write `continuing`
 at the *top* of a `while` loop, skipped on the first iteration. Temporaries the
 body declares are then out of reach of `continuing`, so each backend declares
 the ones `continuing` needs ahead of the loop and has the body assign to them.
+
+[`counted`] finds the loops a backend can write as a `for` loop instead, with
+`continuing` as its step. Those need no gate, but the step still reads the
+body's temporaries, so they are declared ahead all the same.
 
 [`Loop`]: crate::Statement::Loop
 */
@@ -55,11 +60,125 @@ pub(super) fn continuing_dependencies(
         .collect()
 }
 
+/// A counted loop, as most of WGSL's `for` loops are: its body opens by
+/// testing a local variable against a constant, and its `continuing` block is
+/// one store to that variable.
+///
+/// Metal's compiler makes far faster code of one written as a `for` loop than
+/// of one behind a first pass gate, and ANGLE guards few of them. Other bounds
+/// stay gated: Metal ran slower with a `for` loop bounded by an argument.
+#[cfg(any(glsl_out, msl_out))]
+pub(super) struct Counted {
+    /// How many leading statements of the body the header replaces.
+    pub skip: usize,
+    pub condition: Handle<crate::Expression>,
+    /// The counter, and the value the step stores to it.
+    pub step: (Handle<crate::Expression>, Handle<crate::Expression>),
+}
+
+/// Whether the loop is [`Counted`]. `bakes` says which expressions the backend
+/// gives a temporary.
+///
+/// The header evaluates in place what the statements it replaces would have
+/// held in temporaries, so only the test may read those, and only loads among
+/// them may be baked: a load reads the same value there as at the top of the
+/// body.
+#[cfg(any(glsl_out, msl_out))]
+pub(super) fn counted(
+    module: &crate::Module,
+    function: &crate::Function,
+    info: &crate::valid::FunctionInfo,
+    body: &crate::Block,
+    continuing: &crate::Block,
+    break_if: Option<Handle<crate::Expression>>,
+    bakes: impl Fn(Handle<crate::Expression>) -> bool,
+) -> Option<Counted> {
+    use crate::{BinaryOperator as Bo, Expression as Ex, Literal as Li, Statement as St};
+
+    if break_if.is_some() {
+        return None;
+    }
+    let expressions = &function.expressions;
+    let is_emit = |statement: &St| matches!(*statement, St::Emit(_));
+    let skip = body
+        .iter()
+        .take_while(|&statement| is_emit(statement))
+        .count();
+    let condition = match *body.get(skip)? {
+        St::If {
+            condition,
+            ref accept,
+            ref reject,
+        } if accept.is_empty() && matches!(reject[..], [St::Break]) => condition,
+        _ => return None,
+    };
+    let skip = skip + 1;
+    let Ex::Binary { op, left, right } = expressions[condition] else {
+        return None;
+    };
+    let Ex::Load { pointer: counter } = expressions[left] else {
+        return None;
+    };
+    let (&St::Store { pointer, value }, emits) = continuing.split_last()? else {
+        return None;
+    };
+    let bound = match expressions[right] {
+        Ex::Literal(literal) => literal,
+        Ex::Constant(constant) => {
+            match module.global_expressions[module.constants[constant].init] {
+                Ex::Literal(literal) => literal,
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    // ANGLE takes a loop whose test cannot fail for one that ends, and Metal
+    // drops a loop that never does along with the code around it.
+    let endless = matches!(
+        (op, bound),
+        (
+            Bo::LessEqual,
+            Li::I32(i32::MAX) | Li::U32(u32::MAX) | Li::I64(i64::MAX) | Li::U64(u64::MAX)
+        ) | (
+            Bo::GreaterEqual,
+            Li::I32(i32::MIN) | Li::U32(0) | Li::I64(i64::MIN) | Li::U64(0)
+        )
+    );
+    if endless
+        || pointer != counter
+        || !matches!(expressions[counter], Ex::LocalVariable(_))
+        || !emits.iter().all(is_emit)
+    {
+        return None;
+    }
+
+    // Other expressions may come with statements of their own where they are emitted.
+    let in_place = |handle| match expressions[handle] {
+        Ex::Load { .. } => true,
+        Ex::Unary { .. } | Ex::Binary { .. } | Ex::Math { .. } | Ex::As { .. } => !bakes(handle),
+        _ => false,
+    };
+    let only_tested = |handle: Handle<crate::Expression>| {
+        (handle == left || handle == condition) && info[handle].ref_count == 1
+    };
+    let tested = definitions(expressions, &body[..skip]);
+    let stepped = definitions(expressions, continuing);
+    (tested
+        .iter()
+        .all(|handle| only_tested(handle) && in_place(handle))
+        && stepped.iter().all(in_place))
+    .then_some(Counted {
+        skip,
+        condition,
+        step: (pointer, value),
+    })
+}
+
 /// Return the expressions that `block` itself computes values for, in
 /// increasing handle order.
 fn definitions(
     expressions: &Arena<crate::Expression>,
-    block: &crate::Block,
+    block: &[crate::Statement],
 ) -> HandleSet<crate::Expression> {
     use crate::Statement as St;
 

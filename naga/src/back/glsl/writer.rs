@@ -1913,8 +1913,9 @@ impl<'a, W: Write> Writer<'a, W> {
                     writeln!(self.out, "{level}}}")?
                 }
             }
-            // Loops in naga IR are based on wgsl loops, glsl can emulate the behaviour by using a
-            // while true loop and appending the continuing block to the body resulting on:
+            // Loops in naga IR are based on wgsl loops. A counted one is written as a `for`
+            // loop. glsl can emulate the behaviour of the rest by using a while true loop
+            // and appending the continuing block to the body resulting on:
             // ```
             // bool loop_init = true;
             // while(true) {
@@ -1929,8 +1930,28 @@ impl<'a, W: Write> Writer<'a, W> {
                 break_if,
             } => {
                 self.continue_ctx.enter_loop();
-                if !continuing.is_empty() || break_if.is_some() {
+                let continues = !continuing.is_empty() || break_if.is_some();
+                if continues {
                     self.hoist_continuing_dependencies(level, body, continuing, break_if, ctx)?;
+                }
+                let counted = back::continuing::counted(
+                    self.module,
+                    self.function(ctx),
+                    ctx.info,
+                    body,
+                    continuing,
+                    break_if,
+                    |handle| self.bakes_expression(handle, ctx),
+                );
+                let mut body = &body[..];
+                if let Some(counted) = counted {
+                    write!(self.out, "{level}for (; ")?;
+                    self.write_expr(counted.condition, ctx)?;
+                    write!(self.out, "; ")?;
+                    self.write_step(counted.step, ctx)?;
+                    writeln!(self.out, ") {{")?;
+                    body = &body[counted.skip..];
+                } else if continues {
                     let gate_name = self.namer.call("loop_init");
                     writeln!(self.out, "{level}bool {gate_name} = true;")?;
                     writeln!(self.out, "{level}while(true) {{")?;
@@ -4912,6 +4933,51 @@ impl<'a, W: Write> Writer<'a, W> {
         })
     }
 
+    /// The function `ctx` is writing.
+    fn function(&self, ctx: &back::FunctionCtx) -> &'a crate::Function {
+        match ctx.ty {
+            back::FunctionType::Function(handle) => &self.module.functions[handle],
+            back::FunctionType::EntryPoint(index) => {
+                &self.module.entry_points[index as usize].function
+            }
+        }
+    }
+
+    /// Whether `write_expr` writes `handle` as the temporary holding its value.
+    fn is_stored(&self, handle: Handle<crate::Expression>) -> bool {
+        self.named_expressions.contains_key(&handle)
+            || self.hoisted_loop_expressions.contains_key(&handle)
+    }
+
+    /// Writes a loop's step as an expression, adding or subtracting in place
+    /// where it can: ANGLE sees a loop end only when it steps by one that way.
+    fn write_step(
+        &mut self,
+        (pointer, value): (Handle<crate::Expression>, Handle<crate::Expression>),
+        ctx: &back::FunctionCtx,
+    ) -> BackendResult {
+        use crate::BinaryOperator as Bo;
+
+        self.write_expr(pointer, ctx)?;
+        if let crate::Expression::Binary {
+            op: op @ (Bo::Add | Bo::Subtract),
+            left,
+            right,
+        } = ctx.expressions[value]
+        {
+            // A sum or a counter read ahead of the step holds an earlier value.
+            if ctx.expressions[left] == (crate::Expression::Load { pointer })
+                && !self.is_stored(value)
+                && !self.is_stored(left)
+            {
+                write!(self.out, " {}= ", back::binary_operation_str(op))?;
+                return self.write_expr(right, ctx);
+            }
+        }
+        write!(self.out, " = ")?;
+        self.write_expr(value, ctx)
+    }
+
     /// Declares ahead of a loop the temporaries its `continuing` block needs
     /// from `body`, which we write below it, so `continuing` can name them and
     /// the body only assigns them.
@@ -4923,15 +4989,9 @@ impl<'a, W: Write> Writer<'a, W> {
         break_if: Option<Handle<crate::Expression>>,
         ctx: &back::FunctionCtx,
     ) -> BackendResult {
-        let function = match ctx.ty {
-            back::FunctionType::Function(handle) => &self.module.functions[handle],
-            back::FunctionType::EntryPoint(index) => {
-                &self.module.entry_points[index as usize].function
-            }
-        };
         let hoisted = back::continuing::continuing_dependencies(
             self.module,
-            function,
+            self.function(ctx),
             ctx.info,
             body,
             continuing,

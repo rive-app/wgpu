@@ -4225,12 +4225,23 @@ impl<W: Write> Writer<W> {
                 } => {
                     let force_loop_bound_statements =
                         self.gen_force_bounded_loop_statements(level, context);
-                    let gate_name = (!continuing.is_empty() || break_if.is_some())
-                        .then(|| self.namer.call("loop_init"));
+                    let continues = !continuing.is_empty() || break_if.is_some();
+                    let counted = back::continuing::counted(
+                        context.expression.module,
+                        context.expression.function,
+                        context.expression.info,
+                        body,
+                        continuing,
+                        break_if,
+                        |handle| self.bakes_expression(handle, &context.expression),
+                    );
+                    let gate_name =
+                        (continues && counted.is_none()).then(|| self.namer.call("loop_init"));
 
-                    // We generate `continuing` above `body`, so the temporaries
-                    // it needs from `body` must be declared outside the loop.
-                    if gate_name.is_some() {
+                    // We generate `continuing` above `body` or in the loop's
+                    // header, so the temporaries it needs from `body` must be
+                    // declared outside the loop.
+                    if continues {
                         self.hoist_continuing_dependencies(
                             level, body, continuing, break_if, context,
                         )?;
@@ -4243,7 +4254,20 @@ impl<W: Write> Writer<W> {
                         writeln!(self.out, "{level}bool {gate_name} = true;")?;
                     }
 
-                    writeln!(self.out, "{level}while(true) {{",)?;
+                    let mut body = &body[..];
+                    if let Some(counted) = counted {
+                        let (pointer, value) = counted.step;
+                        write!(self.out, "{level}for (; ")?;
+                        self.put_expression(counted.condition, &context.expression, true)?;
+                        write!(self.out, "; ")?;
+                        self.put_expression(pointer, &context.expression, true)?;
+                        write!(self.out, " = ")?;
+                        self.put_expression(value, &context.expression, true)?;
+                        writeln!(self.out, ") {{")?;
+                        body = &body[counted.skip..];
+                    } else {
+                        writeln!(self.out, "{level}while(true) {{",)?;
+                    }
                     if let Some((_, ref break_and_inc)) = force_loop_bound_statements {
                         writeln!(self.out, "{break_and_inc}")?;
                     }

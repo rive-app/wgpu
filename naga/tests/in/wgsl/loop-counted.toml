@@ -1,0 +1,8 @@
+targets = "METAL | GLSL"
+
+# `image_test` needs this for the level its load clamps in a statement of its own.
+[bounds_check_policies]
+image_load = "Restrict"
+
+[glsl]
+version.Desktop = 430

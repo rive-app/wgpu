@@ -13,34 +13,12 @@ void main() {
     vec4 acc_noinit = vec4(0.0);
     vec4 acc_init = vec4(0.0);
     uint d = 0u;
-    bool loop_init = true;
-    while(true) {
-        if (!loop_init) {
-            uint _e47 = t;
-            t = (_e47 + 1u);
-        }
-        loop_init = false;
-        uint _e2 = t;
-        if ((_e2 < 4u)) {
-        } else {
-            break;
-        }
+    for (; (t < 4u); t += 1u) {
         {
             acc_noinit = vec4(0.0);
             acc_init = vec4(0.0);
             d = 0u;
-            bool loop_init_1 = true;
-            while(true) {
-                if (!loop_init_1) {
-                    uint _e28 = d;
-                    d = (_e28 + 1u);
-                }
-                loop_init_1 = false;
-                uint _e11 = d;
-                if ((_e11 < 16u)) {
-                } else {
-                    break;
-                }
+            for (; (d < 16u); d += 1u) {
                 {
                     uint _e15 = t;
                     uint _e18 = d;

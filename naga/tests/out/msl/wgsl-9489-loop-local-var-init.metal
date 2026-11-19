@@ -20,39 +20,17 @@ kernel void main_(
     metal::float4 acc_init = {};
     uint d = {};
     uint2 loop_bound = uint2(4294967295u);
-    bool loop_init = true;
-    while(true) {
+    for (; t < 4u; t = t + 1u) {
         if (metal::all(loop_bound == uint2(0u))) { break; }
         loop_bound -= uint2(loop_bound.y == 0u, 1u);
-        if (!loop_init) {
-            uint _e47 = t;
-            t = _e47 + 1u;
-        }
-        loop_init = false;
-        uint _e2 = t;
-        if (_e2 < 4u) {
-        } else {
-            break;
-        }
         {
             acc_noinit = metal::float4 {};
             acc_init = metal::float4 {};
             d = 0u;
             uint2 loop_bound_1 = uint2(4294967295u);
-            bool loop_init_1 = true;
-            while(true) {
+            for (; d < 16u; d = d + 1u) {
                 if (metal::all(loop_bound_1 == uint2(0u))) { break; }
                 loop_bound_1 -= uint2(loop_bound_1.y == 0u, 1u);
-                if (!loop_init_1) {
-                    uint _e28 = d;
-                    d = _e28 + 1u;
-                }
-                loop_init_1 = false;
-                uint _e11 = d;
-                if (_e11 < 16u) {
-                } else {
-                    break;
-                }
                 {
                     uint _e15 = t;
                     uint _e18 = d;

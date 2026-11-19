@@ -22,18 +22,7 @@ void main() {
     uint i = 0u;
     int old = 0;
     bool exchanged = false;
-    bool loop_init = true;
-    while(true) {
-        if (!loop_init) {
-            uint _e27 = i;
-            i = (_e27 + 1u);
-        }
-        loop_init = false;
-        uint _e2 = i;
-        if ((_e2 < SIZE)) {
-        } else {
-            break;
-        }
+    for (; (i < SIZE); i += 1u) {
         {
             uint _e6 = i;
             int _e8 = atomicOr(_group_0_binding_0_cs[_e6], 0);
