@@ -95,7 +95,9 @@ impl<'a, W: Write> Writer<'a, W> {
             proc::KeywordSet::empty(),
             proc::CaseInsensitiveKeywordSet::empty(),
             &[
-                "gl_",                  // all GL built-in variables
+                "gl_",    // all GL built-in variables
+                "webgl_", // WebGL reserves these two as well
+                "_webgl_",
                 "_group",               // all normal bindings
                 "_immediates_binding_", // all immediate data bindings
             ],

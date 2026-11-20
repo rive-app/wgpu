@@ -155,9 +155,12 @@ impl Namer {
             Cow::Owned(filtered)
         };
 
+        // Whatever is appended to the base starts with a `SEPARATOR`, so the
+        // base must not be a reserved prefix short of its last `SEPARATOR`
+        // either. GLSL also reserves a doubled `SEPARATOR`.
         for prefix in &self.reserved_prefixes {
-            if base.starts_with(prefix) {
-                return format!("gen_{base}").into();
+            if base.starts_with(prefix) || prefix.strip_suffix(SEPARATOR) == Some(&*base) {
+                return format!("gen_{}", base.trim_start_matches(SEPARATOR)).into();
             }
         }
 
@@ -412,4 +415,14 @@ fn test() {
     assert_eq!(namer.call("x1"), "x1_");
     assert_eq!(namer.call("__x"), "_x");
     assert_eq!(namer.call("1___x"), "_x_1");
+}
+
+#[test]
+fn nothing_appended_completes_a_reserved_prefix() {
+    let mut namer = Namer::default();
+    namer.reserved_prefixes.extend(["gl_", "_group"]);
+    assert_eq!(namer.call("gl"), "gen_gl");
+    assert_eq!(namer.call("gl"), "gen_gl_1");
+    assert_eq!(namer.call("glow"), "glow");
+    assert_eq!(namer.call("_groupx"), "gen_groupx");
 }
